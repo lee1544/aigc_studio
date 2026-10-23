@@ -1,0 +1,166 @@
+package com.example.aigc.service;
+
+import com.example.aigc.entity.Permission;
+import com.example.aigc.entity.RolePermission;
+import com.example.aigc.exception.BusinessException;
+import com.example.aigc.filter.UserPermissionCache;
+import com.example.aigc.repository.PermissionRepository;
+import com.example.aigc.repository.RolePermissionRepository;
+import com.example.aigc.repository.UserRoleRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+public class PermissionService {
+
+    @Autowired
+    private PermissionRepository permissionRepository;
+
+    @Autowired
+    private RolePermissionRepository rolePermissionRepository;
+
+    @Autowired
+    private UserRoleRepository userRoleRepository;
+
+    @Autowired
+    private UserPermissionCache userPermissionCache;
+
+    public List<String> getPermissionCodesByRoleIds(List<Integer> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Permission> permissions = permissionRepository.findByRoleIds(roleIds);
+        return permissions.stream()
+                .map(Permission::getPermissionCode)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void assignAllPermissionsToRole(Integer roleId) {
+        List<Permission> allPermissions = permissionRepository.findByStatus(1);
+
+        List<RolePermission> rolePermissions = allPermissions.stream()
+                .map(permission -> {
+                    RolePermission rp = new RolePermission();
+                    rp.setRoleId(roleId);
+                    rp.setPermissionId(permission.getId());
+                    return rp;
+                })
+                .collect(Collectors.toList());
+
+        rolePermissionRepository.saveAll(rolePermissions);
+        evictCacheByRoleId(roleId);
+    }
+
+    @Transactional
+    public void assignPermissionsByCodesToRole(Integer roleId, String[] permissionCodes) {
+        rolePermissionRepository.deleteByRoleId(roleId);
+        for (String code : permissionCodes) {
+            Permission permission = permissionRepository.findByPermissionCode(code)
+                    .orElseThrow(() -> new BusinessException("权限不存在: " + code));
+            RolePermission rolePermission = new RolePermission();
+            rolePermission.setRoleId(roleId);
+            rolePermission.setPermissionId(permission.getId());
+            rolePermissionRepository.save(rolePermission);
+        }
+        evictCacheByRoleId(roleId);
+    }
+
+    @Transactional
+    public void assignPermissionsToRole(Integer roleId, Integer[] permissionIds) {
+        rolePermissionRepository.deleteByRoleId(roleId);
+        if (permissionIds != null && permissionIds.length > 0) {
+            List<RolePermission> rolePermissions = Arrays.stream(permissionIds)
+                    .map(permissionId -> {
+                        RolePermission rolePermission = new RolePermission();
+                        rolePermission.setRoleId(roleId);
+                        rolePermission.setPermissionId(permissionId);
+                        return rolePermission;
+                    })
+                    .collect(Collectors.toList());
+            rolePermissionRepository.saveAll(rolePermissions);
+        }
+        evictCacheByRoleId(roleId);
+    }
+
+    public List<Permission> getAllActivePermissions() {
+        return permissionRepository.findByStatus(1);
+    }
+
+    public List<Permission> getAllPermissions() {
+        return permissionRepository.findAllByOrderByPermissionCodeAsc();
+    }
+
+    @Transactional
+    public Permission updatePermissionStatus(Integer permissionId, Integer status) {
+        if (status == null || (status != 0 && status != 1)) {
+            throw new BusinessException("权限状态只能是 0 或 1");
+        }
+        Permission permission = permissionRepository.findById(permissionId)
+                .orElseThrow(() -> new BusinessException("权限不存在"));
+        permission.setStatus(status);
+        permission.setUpdateTime(LocalDateTime.now());
+        Permission saved = permissionRepository.save(permission);
+        userPermissionCache.evictAll();
+        return saved;
+    }
+
+    public List<Permission> getPermissionsByRoleId(Integer roleId) {
+        return permissionRepository.findAllByRoleId(roleId);
+    }
+
+    public Map<Integer, List<Permission>> getPermissionsByRoleIds(List<Integer> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<RolePermission> links = rolePermissionRepository.findByRoleIdIn(roleIds);
+        if (links.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<Integer> permissionIds = links.stream()
+                .map(RolePermission::getPermissionId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Integer, Permission> permissionMap = permissionRepository.findAllById(permissionIds).stream()
+                .collect(Collectors.toMap(Permission::getId, permission -> permission));
+
+        Map<Integer, List<Permission>> result = new HashMap<>();
+        for (RolePermission link : links) {
+            Permission permission = permissionMap.get(link.getPermissionId());
+            if (permission == null) {
+                continue;
+            }
+            result.computeIfAbsent(link.getRoleId(), key -> new ArrayList<>()).add(permission);
+        }
+        return result;
+    }
+
+    @Transactional
+    public void clearRolePermissions(Integer roleId) {
+        // 先清缓存（此时 user_role 记录还存在），再删 role_permission
+        evictCacheByRoleId(roleId);
+        rolePermissionRepository.deleteByRoleId(roleId);
+    }
+
+    /**
+     * 根据角色ID清除拥有该角色的所有用户的权限缓存
+     */
+    private void evictCacheByRoleId(Integer roleId) {
+        userRoleRepository.findByRoleId(roleId)
+                .forEach(ur -> userPermissionCache.evict(ur.getUserId()));
+    }
+}

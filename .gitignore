@@ -1,0 +1,21 @@
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# 环境配置（仅本地开发）
+application-*.properties
+!application.properties
+
+# 运行时数据
+/data/
+/logs/
+*.log
+
+# 种子脚本若部署方需要外置，可按需放开
