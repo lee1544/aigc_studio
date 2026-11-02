@@ -64,6 +64,17 @@
             <artifactId>mysql-connector-j</artifactId>
             <version>8.0.33</version>
         </dependency>
+        <!-- Flyway 数据库版本迁移：Spring Boot 2.6.13 对应 8.5.13，flyway-mysql 需显式指定同版本 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>8.5.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+            <version>8.5.13</version>
+        </dependency>
     </dependencies>
     <dependencyManagement>
         <dependencies>
@@ -97,7 +108,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>2.22.2</version>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
