@@ -99,60 +99,160 @@
       </header>
 
       <main class="content">
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2 id="greetingTitle">欢迎回来</h2>
-              <p id="greetingSummary" class="muted">加载中...</p>
+        <section class="dash-hero">
+          <div class="dash-hero-body">
+            <p class="dash-hero-tag">工作台</p>
+            <h2 id="greetingTitle">欢迎回来</h2>
+            <p id="greetingSummary" class="dash-hero-desc">正在加载账号信息…</p>
+            <div class="dash-hero-actions">
+              <a class="btn btn-hero-primary" href="./users.html" data-any-permission="user:view">进入用户管理</a>
+              <a class="btn btn-hero-ghost" href="./organizations.html" data-any-permission="org:view">组织管理</a>
+              <a class="btn btn-hero-ghost" href="./roles.html" data-any-permission="role:view">角色与权限</a>
             </div>
           </div>
-
-          <div class="form-grid">
-            <div class="field">
-              <span class="field-label">用户名</span>
-              <input id="profileUsername" type="text" readonly value="-">
-            </div>
-            <div class="field">
-              <span class="field-label">姓名</span>
-              <input id="profileRealName" type="text" readonly value="-">
-            </div>
-            <div class="field">
-              <span class="field-label">所属组织</span>
-              <input id="profileOrg" type="text" readonly value="-">
-            </div>
-            <div class="field">
-              <span class="field-label">角色</span>
-              <input id="profileRoles" type="text" readonly value="-">
-            </div>
+          <div class="dash-hero-card">
+            <span id="heroAvatar" class="avatar avatar-lg" aria-hidden="true">A</span>
+            <strong id="heroName">-</strong>
+            <span id="heroUsername" class="dash-hero-username">-</span>
+            <span id="heroState" class="dash-hero-state">登录正常</span>
           </div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>快捷入口</h2>
-              <p class="muted">按当前账号的权限显示</p>
+        <div id="firstLoginNote" class="alert alert-warning" role="status" hidden>
+          <strong>首次登录提醒：</strong>当前账号仍在使用初始化密码，建议尽快联系管理员重置为个人密码。
+        </div>
+
+        <section class="stats-grid" aria-label="关键指标">
+          <a class="stat-card" href="./users.html" data-any-permission="user:view">
+            <div class="stat-top">
+              <span class="stat-label">创作者账号</span>
+              <span class="stat-icon stat-icon-blue" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.8"/><path d="M5 20c.7-3.4 3.2-5.5 7-5.5s6.3 2.1 7 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </span>
             </div>
-          </div>
-          <div class="form-grid">
-            <a class="field" href="./organizations.html" data-any-permission="org:view">
-              <span class="field-label">组织管理</span>
-              创建组织、维护组织信息与初始管理员
-            </a>
-            <a class="field" href="./users.html" data-any-permission="user:view">
-              <span class="field-label">用户管理</span>
-              新建用户、分配角色、重置密码
-            </a>
-            <a class="field" href="./roles.html" data-any-permission="role:view">
-              <span class="field-label">角色管理</span>
-              管理本组织角色并分配权限
-            </a>
-            <a class="field" href="./permissions.html" data-any-permission="role:view">
-              <span class="field-label">权限管理</span>
-              查看全局权限与启用状态
-            </a>
+            <strong id="statUsers" data-stat>—</strong>
+            <span class="stat-hint">普通创作者账号（不含已删除）</span>
+          </a>
+          <a class="stat-card" href="./organizations.html" data-any-permission="org:view">
+            <div class="stat-top">
+              <span class="stat-label">组织数量</span>
+              <span class="stat-icon stat-icon-amber" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 20V8l8-5 8 5v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </span>
+            </div>
+            <strong id="statOrgs" data-stat>—</strong>
+            <span class="stat-hint">当前可见的组织总数</span>
+          </a>
+          <a class="stat-card" href="./roles.html" data-any-permission="role:view">
+            <div class="stat-top">
+              <span class="stat-label">角色数量</span>
+              <span class="stat-icon stat-icon-green" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L12 3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+              </span>
+            </div>
+            <strong id="statRoles" data-stat>—</strong>
+            <span class="stat-hint">本组织已配置的角色</span>
+          </a>
+          <div class="stat-card stat-card-plain">
+            <div class="stat-top">
+              <span class="stat-label">累计生成任务</span>
+              <span class="stat-icon stat-icon-red" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </span>
+            </div>
+            <strong id="statGenerations" data-stat>—</strong>
+            <span class="stat-hint">运行记录累计条数</span>
           </div>
         </section>
+
+        <div class="dash-columns">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>快捷入口</h2>
+                <p class="muted">按当前账号权限显示，点击进入对应模块</p>
+              </div>
+            </div>
+            <div class="quick-grid">
+              <a class="quick-card" href="./users.html" data-any-permission="user:view">
+                <span class="quick-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.8"/><path d="M5 20c.7-3.4 3.2-5.5 7-5.5s6.3 2.1 7 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </span>
+                <span class="quick-body">
+                  <strong>用户管理</strong>
+                  <span>新建用户与角色分配</span>
+                </span>
+                <svg class="quick-arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
+              <a class="quick-card" href="./organizations.html" data-any-permission="org:view">
+                <span class="quick-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M4 20V8l8-5 8 5v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </span>
+                <span class="quick-body">
+                  <strong>组织管理</strong>
+                  <span>组织信息与初始管理员</span>
+                </span>
+                <svg class="quick-arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
+              <a class="quick-card" href="./roles.html" data-any-permission="role:view">
+                <span class="quick-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L12 3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+                </span>
+                <span class="quick-body">
+                  <strong>角色管理</strong>
+                  <span>角色配置与权限分配</span>
+                </span>
+                <svg class="quick-arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
+              <a class="quick-card" href="./permissions.html" data-any-permission="role:view">
+                <span class="quick-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M14.5 9.5a4.5 4.5 0 11-3.2 7.7L4 21.5 2.5 20 4 18.5 2.5 17 5 14.5l1.5 1.5 3-3a4.5 4.5 0 015-3.5z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="16" cy="8" r="1.2" fill="currentColor"/></svg>
+                </span>
+                <span class="quick-body">
+                  <strong>权限管理</strong>
+                  <span>全局权限与启用状态</span>
+                </span>
+                <svg class="quick-arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </a>
+            </div>
+            <p class="quick-foot">只列出当前账号有权限进入的模块；缺少入口说明需要联系超级管理员调整角色。</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>账号信息</h2>
+                <p class="muted">当前登录会话</p>
+              </div>
+            </div>
+            <dl class="meta-list">
+              <div class="meta-row">
+                <dt>登录账号</dt>
+                <dd id="profileUsername">-</dd>
+              </div>
+              <div class="meta-row">
+                <dt>姓名</dt>
+                <dd id="profileRealName">-</dd>
+              </div>
+              <div class="meta-row">
+                <dt>所属组织</dt>
+                <dd id="profileOrg">-</dd>
+              </div>
+              <div class="meta-row">
+                <dt>角色</dt>
+                <dd id="profileRoles" class="badge-list"><span class="muted">-</span></dd>
+              </div>
+              <div id="permissionRow" class="meta-row" hidden>
+                <dt>权限项</dt>
+                <dd id="profilePermissions">-</dd>
+              </div>
+              <div class="meta-row">
+                <dt>账号创建</dt>
+                <dd id="profileCreatedAt">-</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
       </main>
     </div>
   </div>
@@ -161,24 +261,6 @@
 
   <script src="./assets/common.js"></script>
   <script src="./assets/page.js"></script>
-  <script>
-    (function () {
-      'use strict';
-      AdminPage.init().then(function (user) {
-        if (!user) {
-          return;
-        }
-        var roles = Array.isArray(user.roles) ? user.roles.join(', ') : '';
-        document.getElementById('profileUsername').value = user.username || '-';
-        document.getElementById('profileRealName').value = user.realName || '-';
-        document.getElementById('profileOrg').value = user.orgName || '-';
-        document.getElementById('profileRoles').value = roles || '-';
-        document.getElementById('greetingTitle').textContent =
-          '欢迎回来' + ((user.realName || user.username) ? '，' + (user.realName || user.username) : '');
-        document.getElementById('greetingSummary').textContent =
-          user.firstLogin ? '检测到首次登录，建议尽快修改初始密码。' : '登录状态正常。';
-      });
-    })();
-  </script>
+  <script src="./assets/overview.js"></script>
 </body>
 </html>

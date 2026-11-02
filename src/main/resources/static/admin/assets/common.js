@@ -305,6 +305,49 @@
     return value.slice(0, length) + '\u2026';
   }
 
+  // ---------- 权限分组：按业务模块归类，角色分配权限与权限管理页共用 ----------
+
+  var PERMISSION_SCOPES = [
+    { key: 'system', label: '系统管理权限', hint: '账号、组织、角色与授权' },
+    { key: 'create', label: '功能访问权限', hint: '按账号开放功能，积分单独管理' },
+    { key: 'other', label: '未归类权限', hint: '尚未纳入模块分组的新增权限' }
+  ];
+
+  var PERMISSION_MODULES = [
+    { key: 'user', label: '用户管理', scope: 'system', prefixes: ['user'] },
+    { key: 'org', label: '组织管理', scope: 'system', prefixes: ['org'] },
+    { key: 'role', label: '角色管理', scope: 'system', prefixes: ['role'] },
+    { key: 'permission', label: '权限管理', scope: 'system', prefixes: ['permission'] },
+    { key: 'license', label: 'License 授权', scope: 'system', prefixes: ['license'] },
+    { key: 'text', label: '文本与故事', scope: 'create', codes: ['text-studio', 'script', 'storyboard', 'grid'] },
+    { key: 'image', label: '图片工作室', scope: 'create', codes: ['textToImage', 'imageToImage', 'imageEdit'] },
+    { key: 'video', label: '视频工作室', scope: 'create', codes: ['textToVideo', 'imageToVideo', 'firstLastFrameVideo'] },
+    { key: 'audio', label: '音频', scope: 'create', codes: ['voice', 'music', 'lyricRecognition'] },
+    { key: '3d', label: '3D', scope: 'create', codes: ['3d', 'director'] },
+    { key: 'agent', label: 'Agent 与画布', scope: 'create', codes: ['short-drama-agent', 'comic-agent', 'canvas', 'image', 'video'] },
+    { key: 'workflow', label: '工作流与素材处理', scope: 'create', codes: ['workflows', 'transform', 'recreate'] },
+    { key: 'digital-human', label: '数字人与剪辑', scope: 'create', codes: ['digital-human', 'edit'] },
+    { key: 'files', label: '个人文件', scope: 'create', codes: ['files'] }
+  ];
+
+  var PERMISSION_MODULE_OTHER = { key: 'other', label: '未归类', scope: 'other' };
+
+  /** 按权限编码解析所属业务模块：先匹配精确编码，再匹配 `user:` 这类前缀。 */
+  function permissionModule(code) {
+    var text = String(code === null || code === undefined ? '' : code);
+    var prefix = text.split(':')[0];
+    for (var i = 0; i < PERMISSION_MODULES.length; i += 1) {
+      var module = PERMISSION_MODULES[i];
+      if (module.codes && module.codes.indexOf(text) !== -1) {
+        return module;
+      }
+      if (module.prefixes && module.prefixes.indexOf(prefix) !== -1) {
+        return module;
+      }
+    }
+    return PERMISSION_MODULE_OTHER;
+  }
+
   function escapeHtml(value) {
     return String(value === null || value === undefined ? '' : value)
       .replace(/&/g, '&amp;')
@@ -333,6 +376,9 @@
     statusMeta: statusMeta,
     initials: initials,
     shortText: shortText,
+    permissionScopes: PERMISSION_SCOPES,
+    permissionModules: PERMISSION_MODULES,
+    permissionModule: permissionModule,
     escapeHtml: escapeHtml
   };
 })();

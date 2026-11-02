@@ -186,7 +186,7 @@
   </div>
 
   <div id="rolePermissionsModal" class="modal" data-static-close hidden>
-    <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="rolePermissionsTitle">
+    <div class="modal-card modal-card-wide modal-card-permissions" role="dialog" aria-modal="true" aria-labelledby="rolePermissionsTitle">
       <div class="modal-head">
         <div>
           <p class="eyebrow">PERMISSIONS</p>
@@ -203,11 +203,13 @@
           <input id="permissionSearch" type="search" placeholder="权限编码 / 权限名称">
         </label>
         <div class="permission-toolbar-actions">
+          <span class="permission-toolbar-hint">按模块分组，可单模块全选</span>
           <button id="selectAllPermissionsBtn" class="btn btn-ghost btn-sm" type="button">全选</button>
           <button id="clearAllPermissionsBtn" class="btn btn-ghost btn-sm" type="button">清空</button>
         </div>
       </div>
       <div id="permissionGroups" class="permission-groups"></div>
+      <div id="permissionEmpty" class="empty-inline" hidden>没有匹配的权限，换个关键字试试。</div>
       <div class="modal-foot">
         <span id="permissionSelectedCount" class="muted-value"></span>
         <span class="modal-foot-spacer"></span>

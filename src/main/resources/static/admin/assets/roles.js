@@ -11,16 +11,10 @@
     permissionRole: null
   };
 
-  var GROUP_LABELS = {
-    user: '用户权限',
-    org: '组织权限',
-    role: '角色权限',
-    license: 'License 权限',
-    permission: '权限管理',
-    other: '其他权限'
-  };
-
-  var GROUP_ORDER = ['user', 'org', 'role', 'license', 'permission', 'other'];
+  // 分组规则（模块顺序、标签）统一维护在 common.js，保证与权限管理页一致
+  function permissionModule(code) {
+    return AIGCS.permissionModule(code);
+  }
 
   function el(id) {
     return document.getElementById(id);
@@ -54,9 +48,15 @@
     });
     el('saveRolePermissionsBtn').addEventListener('click', saveRolePermissions);
     el('permissionGroups').addEventListener('change', function (event) {
-      if (event.target.matches('input[type="checkbox"]')) {
-        updateSelectedCount();
+      if (!event.target.matches('input[type="checkbox"]')) {
+        return;
       }
+      var moduleKey = event.target.getAttribute('data-module-toggle');
+      if (moduleKey) {
+        setModulePermissions(moduleKey, event.target.checked);
+      }
+      updateSelectedCount();
+      syncModuleToggles();
     });
     el('roleTableBody').addEventListener('click', function (event) {
       var button = event.target.closest('[data-action]');
@@ -254,7 +254,7 @@
   async function openPermissions(role) {
     state.permissionRole = role;
     el('rolePermissionsTitle').textContent = '分配权限';
-    el('rolePermissionsHint').textContent = '为“' + role.roleName + '”选择权限，保存后立即生效。';
+    el('rolePermissionsHint').textContent = '为“' + role.roleName + '”按业务模块勾选权限，保存后立即生效。';
     el('permissionSearch').value = '';
     el('permissionGroups').innerHTML = '<div class="loading-line"><span class="spinner"></span>加载权限...</div>';
     AdminPage.openModal('rolePermissionsModal');
@@ -289,61 +289,127 @@
     updateSelectedCount();
   }
 
-  function renderPermissionGroups(selected) {
-    var groups = {};
+  // 系统管理类权限按“查看 → 创建 → 更新 → 删除 → 授权”的阅读顺序排列
+  var PERMISSION_ACTION_ORDER = ['view', 'create', 'update', 'delete', 'assign-role', 'assign-permission', 'reset-password'];
+
+  function permissionActionRank(code) {
+    var parts = String(code || '').split(':');
+    var action = parts.length > 1 ? parts[1] : '';
+    var index = PERMISSION_ACTION_ORDER.indexOf(action);
+    return index === -1 ? PERMISSION_ACTION_ORDER.length : index;
+  }
+
+  function comparePermission(module, a, b) {
+    var declared = module.codes;
+    if (declared) {
+      var ai = declared.indexOf(a.permissionCode);
+      var bi = declared.indexOf(b.permissionCode);
+      if (ai !== bi) {
+        if (ai === -1) {
+          return 1;
+        }
+        if (bi === -1) {
+          return -1;
+        }
+        return ai - bi;
+      }
+    } else {
+      var rankDiff = permissionActionRank(a.permissionCode) - permissionActionRank(b.permissionCode);
+      if (rankDiff !== 0) {
+        return rankDiff;
+      }
+    }
+    return String(a.permissionCode).localeCompare(String(b.permissionCode));
+  }
+
+  /** 按业务模块归类权限，模块顺序沿用 common.js 的声明顺序。 */
+  function groupPermissionsByModule() {
+    var buckets = {};
     state.permissions.forEach(function (permission) {
-      var prefix = (permission.permissionCode || '').split(':')[0];
-      if (!groups[prefix]) {
-        groups[prefix] = [];
+      var module = permissionModule(permission.permissionCode);
+      if (!buckets[module.key]) {
+        buckets[module.key] = { module: module, items: [] };
       }
-      groups[prefix].push(permission);
+      buckets[module.key].items.push(permission);
     });
 
-    var keys = Object.keys(groups).sort(function (a, b) {
-      var ai = GROUP_ORDER.indexOf(a);
-      var bi = GROUP_ORDER.indexOf(b);
-      if (ai === -1 && bi === -1) {
-        return a.localeCompare(b);
-      }
-      if (ai === -1) {
-        return 1;
-      }
-      if (bi === -1) {
-        return -1;
-      }
-      return ai - bi;
+    Object.keys(buckets).forEach(function (key) {
+      var module = buckets[key].module;
+      buckets[key].items.sort(function (a, b) {
+        return comparePermission(module, a, b);
+      });
     });
 
-    if (keys.length === 0) {
+    return buckets;
+  }
+
+  function renderPermissionGroups(selected) {
+    var buckets = groupPermissionsByModule();
+    if (Object.keys(buckets).length === 0) {
       el('permissionGroups').innerHTML = '<div class="empty-inline">暂无可分配权限。</div>';
       return;
     }
 
-    el('permissionGroups').innerHTML = keys.map(function (prefix) {
-      var items = groups[prefix];
-      return '<section class="permission-group" data-group="' + AIGCS.escapeHtml(prefix) + '">'
-        + '<div class="permission-group-head"><h3>' + AIGCS.escapeHtml(GROUP_LABELS[prefix] || prefix)
-        + '</h3><span>' + items.length + ' 项</span></div>'
-        + '<div class="permission-options">'
-        + items.map(function (permission) {
-          var searchText = ((permission.permissionCode || '') + ' ' + (permission.permissionName || '')).toLowerCase();
-          return '<label class="check-item permission-item" data-search="' + AIGCS.escapeHtml(searchText) + '">'
-            + '<input type="checkbox" value="' + permission.id + '"' + (selected[permission.id] ? ' checked' : '') + '>'
-            + '<span class="check-item-body">'
-            + '<span class="check-item-title">' + AIGCS.escapeHtml(permission.permissionName)
-            + ' <span class="code-pill code-pill-sm">' + AIGCS.escapeHtml(permission.permissionCode) + '</span></span>'
-            + (Number(permission.status) === 0 ? '<span class="check-item-desc text-danger">该权限当前已禁用</span>' : '')
-            + '</span>'
-            + '</label>';
+    el('permissionGroups').innerHTML = AIGCS.permissionScopes.map(function (scope) {
+      var modules = scope.key === 'other'
+        ? (buckets.other ? [buckets.other.module] : [])
+        : AIGCS.permissionModules.filter(function (module) {
+          return module.scope === scope.key && buckets[module.key];
+        });
+      if (modules.length === 0) {
+        return '';
+      }
+      var total = modules.reduce(function (sum, module) {
+        return sum + buckets[module.key].items.length;
+      }, 0);
+      return '<section class="permission-scope" data-scope="' + scope.key + '">'
+        + '<header class="permission-scope-head">'
+        + '<span class="permission-scope-title">' + AIGCS.escapeHtml(scope.label) + '</span>'
+        + '<span class="permission-scope-hint">' + AIGCS.escapeHtml(scope.hint) + '</span>'
+        + '<span class="permission-scope-total">' + total + ' 项</span>'
+        + '</header>'
+        + '<div class="permission-modules">'
+        + modules.map(function (module) {
+          return renderPermissionModule(module, buckets[module.key].items, selected);
         }).join('')
         + '</div></section>';
     }).join('');
   }
 
+  function renderPermissionModule(module, items, selected) {
+    var key = AIGCS.escapeHtml(module.key);
+    var selectedCount = items.filter(function (permission) {
+      return selected[permission.id];
+    }).length;
+
+    return '<section class="permission-group" data-module="' + key + '">'
+      + '<div class="permission-group-head">'
+      + '<label class="permission-group-toggle">'
+      + '<input type="checkbox" data-module-toggle="' + key + '" aria-label="全选“' + AIGCS.escapeHtml(module.label) + '”">'
+      + '<span class="permission-group-title">' + AIGCS.escapeHtml(module.label) + '</span>'
+      + '</label>'
+      + '<span class="permission-group-count" data-module-count="' + key + '">'
+      + selectedCount + ' / ' + items.length + '</span>'
+      + '</div>'
+      + '<div class="permission-options">'
+      + items.map(function (permission) {
+        var searchText = ((permission.permissionCode || '') + ' ' + (permission.permissionName || '')).toLowerCase();
+        return '<label class="check-item permission-item" data-search="' + AIGCS.escapeHtml(searchText) + '">'
+          + '<input type="checkbox" value="' + permission.id + '"' + (selected[permission.id] ? ' checked' : '') + '>'
+          + '<span class="check-item-body">'
+          + '<span class="check-item-title">' + AIGCS.escapeHtml(permission.permissionName)
+          + ' <span class="code-pill code-pill-sm">' + AIGCS.escapeHtml(permission.permissionCode) + '</span></span>'
+          + (Number(permission.status) === 0 ? '<span class="check-item-desc text-danger">该权限当前已禁用</span>' : '')
+          + '</span>'
+          + '</label>';
+      }).join('')
+      + '</div></section>';
+  }
+
   function filterPermissions() {
     var keyword = el('permissionSearch').value.trim().toLowerCase();
-    var groups = el('permissionGroups').querySelectorAll('.permission-group');
-    Array.prototype.forEach.call(groups, function (group) {
+    var visibleTotal = 0;
+    Array.prototype.forEach.call(el('permissionGroups').querySelectorAll('.permission-group'), function (group) {
       var visibleCount = 0;
       Array.prototype.forEach.call(group.querySelectorAll('.permission-item'), function (item) {
         var match = !keyword || (item.getAttribute('data-search') || '').indexOf(keyword) !== -1;
@@ -353,7 +419,53 @@
         }
       });
       group.hidden = visibleCount === 0;
+      visibleTotal += visibleCount;
     });
+    Array.prototype.forEach.call(el('permissionGroups').querySelectorAll('.permission-scope'), function (scope) {
+      scope.hidden = !scope.querySelector('.permission-group:not([hidden])');
+    });
+    var empty = el('permissionEmpty');
+    if (empty) {
+      var hasGroups = el('permissionGroups').querySelectorAll('.permission-group').length > 0;
+      empty.hidden = !hasGroups || visibleTotal !== 0;
+    }
+    syncModuleToggles();
+  }
+
+  /** 同步每个模块头部的“全选”勾选状态与计数（仅统计当前可见项）。 */
+  function syncModuleToggles() {
+    Array.prototype.forEach.call(el('permissionGroups').querySelectorAll('.permission-group'), function (group) {
+      var toggle = group.querySelector('[data-module-toggle]');
+      if (!toggle) {
+        return;
+      }
+      var inputs = group.querySelectorAll('.permission-item:not([hidden]) input[type="checkbox"]');
+      var checked = 0;
+      Array.prototype.forEach.call(inputs, function (input) {
+        if (input.checked) {
+          checked += 1;
+        }
+      });
+      toggle.checked = inputs.length > 0 && checked === inputs.length;
+      toggle.indeterminate = checked > 0 && checked < inputs.length;
+      var count = group.querySelector('[data-module-count]');
+      if (count) {
+        count.textContent = checked + ' / ' + inputs.length;
+      }
+    });
+  }
+
+  function setModulePermissions(moduleKey, checked) {
+    var group = el('permissionGroups').querySelector('.permission-group[data-module="' + moduleKey + '"]');
+    if (!group) {
+      return;
+    }
+    Array.prototype.forEach.call(
+      group.querySelectorAll('.permission-item:not([hidden]) input[type="checkbox"]'),
+      function (input) {
+        input.checked = checked;
+      }
+    );
   }
 
   function setVisiblePermissions(checked) {
@@ -364,11 +476,13 @@
       }
     );
     updateSelectedCount();
+    syncModuleToggles();
   }
 
   function updateSelectedCount() {
-    var count = el('permissionGroups').querySelectorAll('input[type="checkbox"]:checked').length;
-    el('permissionSelectedCount').textContent = '已选择 ' + count + ' 项权限';
+    var inputs = el('permissionGroups').querySelectorAll('.permission-item input[type="checkbox"]');
+    var checked = el('permissionGroups').querySelectorAll('.permission-item input[type="checkbox"]:checked');
+    el('permissionSelectedCount').textContent = '已选择 ' + checked.length + ' / ' + inputs.length + ' 项权限';
   }
 
   async function saveRolePermissions() {
@@ -376,7 +490,7 @@
       return;
     }
     var ids = Array.prototype.map.call(
-      el('permissionGroups').querySelectorAll('input[type="checkbox"]:checked'),
+      el('permissionGroups').querySelectorAll('.permission-item input[type="checkbox"]:checked'),
       function (input) {
         return Number(input.value);
       }

@@ -56,8 +56,8 @@
       }
       loading.hidden = false;
       try {
-        var user = await AIGCS.api('/api/auth/userinfo', { timeout: 8000 });
-        AIGCS.saveUser(user);
+        var user = await AIGCS.api('/api/admin/me', { timeout: 8000 });
+        AIGCS.saveUser(normalizeUser(user));
         window.location.replace('index.html');
         return;
       } catch (e) {
@@ -68,6 +68,14 @@
         loading.hidden = true;
       }
       focusFirstField();
+    }
+
+    // 适配契约 SessionUser：补齐旧管理页面依赖的 username/realName 别名
+    function normalizeUser(user) {
+      if (!user) return user;
+      if (!user.username) user.username = user.email || user.name || '';
+      if (!user.realName) user.realName = user.name || user.username;
+      return user;
     }
 
     function focusFirstField() {
@@ -97,7 +105,7 @@
 
       AIGCS.setButtonLoading(loginButton, true, '登录中...');
       try {
-        var result = await AIGCS.api('/api/auth/login', {
+        var result = await AIGCS.api('/api/admin/login', {
           method: 'POST',
           body: { username: username, password: password },
           auth: false,
@@ -106,7 +114,7 @@
         if (!result || !result.token) {
           throw new Error('登录响应异常，请稍后重试');
         }
-        AIGCS.setAuth(result.token, result.userInfo);
+        AIGCS.setAuth(result.token, normalizeUser(result.user || result.userInfo));
         if (rememberInput.checked) {
           localStorage.setItem(AIGCS.KEYS.username, username);
         } else {

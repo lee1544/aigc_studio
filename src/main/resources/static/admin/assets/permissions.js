@@ -11,14 +11,6 @@
     status: ''
   };
 
-  var CATEGORY_LABELS = {
-    user: '用户',
-    org: '组织',
-    role: '角色',
-    license: 'License',
-    permission: '权限'
-  };
-
   function el(id) {
     return document.getElementById(id);
   }
@@ -102,8 +94,7 @@
   }
 
   function categoryOf(code) {
-    var prefix = (code || '').split(':')[0];
-    return CATEGORY_LABELS[prefix] || '其他';
+    return AIGCS.permissionModule(code).label;
   }
 
   function usageOf(permissionId) {
