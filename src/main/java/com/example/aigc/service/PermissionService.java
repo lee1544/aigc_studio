@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -49,40 +50,53 @@ public class PermissionService {
 
     @Transactional
     public void assignAllPermissionsToRole(Integer roleId) {
-        List<Permission> allPermissions = permissionRepository.findByStatus(1);
-
-        List<RolePermission> rolePermissions = allPermissions.stream()
-                .map(permission -> {
-                    RolePermission rp = new RolePermission();
-                    rp.setRoleId(roleId);
-                    rp.setPermissionId(permission.getId());
-                    return rp;
-                })
-                .collect(Collectors.toList());
-
-        rolePermissionRepository.saveAll(rolePermissions);
-        evictCacheByRoleId(roleId);
+        Integer[] permissionIds = permissionRepository.findByStatus(1).stream()
+                .map(Permission::getId)
+                .toArray(Integer[]::new);
+        assignPermissionsToRole(roleId, permissionIds);
     }
 
     @Transactional
     public void assignPermissionsByCodesToRole(Integer roleId, String[] permissionCodes) {
         rolePermissionRepository.deleteByRoleId(roleId);
-        for (String code : permissionCodes) {
+        List<RolePermission> links = new ArrayList<>();
+        for (String code : new LinkedHashSet<>(Arrays.asList(permissionCodes))) {
             Permission permission = permissionRepository.findByPermissionCode(code)
                     .orElseThrow(() -> new BusinessException("权限不存在: " + code));
             RolePermission rolePermission = new RolePermission();
             rolePermission.setRoleId(roleId);
             rolePermission.setPermissionId(permission.getId());
-            rolePermissionRepository.save(rolePermission);
+            links.add(rolePermission);
+        }
+        if (!links.isEmpty()) {
+            rolePermissionRepository.saveAll(links);
         }
         evictCacheByRoleId(roleId);
     }
 
+    /**
+     * 整体替换角色权限。
+     * <p>
+     * 重复提交同一组权限必须幂等：入参先去重，且先执行批量删除再插入，
+     * 否则会撞 t_role_permission 的 (role_id, permission_id) 唯一索引。
+     * 传入已不存在的权限 id 时返回 400 而不是 500（前端缓存的旧数据能直接看懂）。
+     */
     @Transactional
     public void assignPermissionsToRole(Integer roleId, Integer[] permissionIds) {
+        List<Integer> targetIds = distinctIds(permissionIds);
+        if (!targetIds.isEmpty()) {
+            List<Permission> found = permissionRepository.findAllById(targetIds);
+            if (found.size() != targetIds.size()) {
+                java.util.Set<Integer> existIds = found.stream().map(Permission::getId).collect(Collectors.toSet());
+                List<Integer> missing = targetIds.stream()
+                        .filter(id -> !existIds.contains(id))
+                        .collect(Collectors.toList());
+                throw new BusinessException("权限不存在: " + missing);
+            }
+        }
         rolePermissionRepository.deleteByRoleId(roleId);
-        if (permissionIds != null && permissionIds.length > 0) {
-            List<RolePermission> rolePermissions = Arrays.stream(permissionIds)
+        if (!targetIds.isEmpty()) {
+            List<RolePermission> rolePermissions = targetIds.stream()
                     .map(permissionId -> {
                         RolePermission rolePermission = new RolePermission();
                         rolePermission.setRoleId(roleId);
@@ -93,6 +107,17 @@ public class PermissionService {
             rolePermissionRepository.saveAll(rolePermissions);
         }
         evictCacheByRoleId(roleId);
+    }
+
+    /** 去空、去重，保持请求顺序；权限 id 重复会让保存撞唯一索引。 */
+    private List<Integer> distinctIds(Integer[] permissionIds) {
+        if (permissionIds == null || permissionIds.length == 0) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(permissionIds)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     public List<Permission> getAllActivePermissions() {

@@ -47,6 +47,14 @@ public class SecurityConfig {
                         response.setHeader("Cache-Control", "no-cache");
                         return;
                     }
+                    // 财务/权限/模型配置不走共享缓存
+                    if (uri != null && (uri.startsWith("/api/admin") || uri.startsWith("/api/points")
+                            || uri.startsWith("/api/billing") || uri.startsWith("/api/auth/permissions")
+                            || uri.startsWith("/api/auth/me")
+                            || uri.startsWith("/api/auth/userinfo"))) {
+                        response.setHeader("Cache-Control", "no-store");
+                        return;
+                    }
                     response.setHeader("Cache-Control", "no-cache, no-store, max-age=0, must-revalidate");
                     response.setHeader("Pragma", "no-cache");
                     response.setHeader("Expires", "0");
@@ -54,7 +62,26 @@ public class SecurityConfig {
                 .and()
                 .authorizeRequests()
                 .antMatchers("/admin", "/admin/**", "/favicon.ico").permitAll()
+                // 公开：管理员/创作者登录、注册、公开目录与设置
+                .antMatchers(org.springframework.http.HttpMethod.POST, "/api/admin/login", "/api/auth/login", "/api/auth/register").permitAll()
+                .antMatchers(
+                        "/api/public/settings",
+                        "/api/models",
+                        "/api/published-models",
+                        "/api/studio-skills",
+                        "/api/canvas/models",
+                        "/api/canvas/identity",
+                        "/api/agent/canvas/config"
+                ).permitAll()
+                // 签名媒体：由 expires+signature 自行鉴权，不能要求 Bearer（<img>/<video> 直连）
+                .antMatchers(org.springframework.http.HttpMethod.GET,
+                        "/api/generated/*",
+                        "/api/reference-input/*",
+                        "/api/digital-human-media/*"
+                ).permitAll()
                 .antMatchers("/api/auth/**").permitAll()
+                // 内部配置快照：由 NODE_CONFIG_READ_TOKEN 在控制器内自行鉴权，不能走用户会话
+                .antMatchers("/api/internal/node-config").permitAll()
                 .anyRequest().authenticated()
                 .and()
                 // Spring Security 自身的异常不走 GlobalExceptionHandler，这里统一返回 JSON 响应体

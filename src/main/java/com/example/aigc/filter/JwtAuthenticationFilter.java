@@ -1,7 +1,5 @@
 package com.example.aigc.filter;
 
-import com.example.aigc.service.PermissionService;
-import com.example.aigc.service.UserRoleService;
 import com.example.aigc.utils.JwtTokenUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,7 +15,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -26,16 +23,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private JwtTokenUtil jwtTokenUtil;
 
     @Autowired
-    private UserRoleService userRoleService;
-
-    @Autowired
-    private PermissionService permissionService;
-
-    @Autowired
     private JwtTokenBlacklist jwtTokenBlacklist;
 
     @Autowired
-    private UserPermissionCache userPermissionCache;
+    private UserSessionCache userSessionCache;
 
     @Value("${dev.bypass-token}")
     private String bypassToken;
@@ -49,6 +40,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 request.setAttribute("userId", 1);
                 request.setAttribute("orgId", 1);
                 request.setAttribute("username", "developer");
+                request.setAttribute("role", "admin");
                 request.setAttribute("isDevBypass", true);
 
                 UsernamePasswordAuthenticationToken authentication =
@@ -63,26 +55,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String username = jwtTokenUtil.getUsernameFromToken(token);
                 Integer userId = jwtTokenUtil.getUserIdFromToken(token);
                 Integer orgId = jwtTokenUtil.getOrgIdFromToken(token);
+                Integer tokenVersion = jwtTokenUtil.getTokenVersionFromToken(token);
+                String role = jwtTokenUtil.getRoleFromToken(token);
 
-                // 优先从缓存获取权限，缓存未命中时查询数据库并缓存
-                List<String> permissions = userPermissionCache.get(userId);
-                if (permissions == null) {
-                    List<Integer> roleIds = userRoleService.getRoleIdsByUserId(userId);
-                    permissions = permissionService.getPermissionCodesByRoleIds(roleIds);
-                    userPermissionCache.put(userId, permissions);
+                // 会话版本校验：与库中 tokenVersion 不一致则视为已撤销（改密/禁用/删除/退出）
+                UserSessionCache.SessionInfo info = userSessionCache.get(userId);
+                if (info == null || !java.util.Objects.equals(info.tokenVersion, tokenVersion)) {
+                    // 复核一次，避免缓存陈旧
+                    info = userSessionCache.loadFresh(userId);
+                    if (info == null || !java.util.Objects.equals(info.tokenVersion, tokenVersion)) {
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
                 }
 
                 request.setAttribute("userId", userId);
                 request.setAttribute("orgId", orgId);
                 request.setAttribute("username", username);
-                request.setAttribute("userPermissions", permissions);
+                request.setAttribute("role", role);
+                request.setAttribute("userPermissions", info.permissions);
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(username, null, new ArrayList<>());
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
         }
-        
+
         filterChain.doFilter(request, response);
     }
 

@@ -35,6 +35,16 @@ public class UserContextUtil {
         }
         return username;
     }
+
+    public static String getCurrentRole() {
+        HttpServletRequest request = getCurrentRequest();
+        Object role = request.getAttribute("role");
+        return role == null ? "user" : role.toString();
+    }
+
+    public static boolean isAdmin() {
+        return "admin".equals(getCurrentRole());
+    }
     
     public static boolean isDevBypass() {
         HttpServletRequest request = getCurrentRequest();

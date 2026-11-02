@@ -17,7 +17,9 @@ public class CorsConfig {
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/**")
                         .allowedOrigins("*")
-                        .allowedMethods("*");
+                        .allowedMethods("*")
+                        // 流水分页游标跨域可见
+                        .exposedHeaders("X-Next-Cursor");
             }
         };
     }

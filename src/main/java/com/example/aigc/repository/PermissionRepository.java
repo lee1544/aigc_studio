@@ -17,6 +17,11 @@ public interface PermissionRepository extends JpaRepository<Permission, Integer>
 
     @Query("SELECT p FROM Permission p JOIN RolePermission rp ON p.id = rp.permissionId WHERE rp.roleId = :roleId")
     List<Permission> findAllByRoleId(@Param("roleId") Integer roleId);
+
+    /** 批量读取多个角色已授予的权限码：[roleId, permissionCode]。 */
+    @Query("SELECT rp.roleId, p.permissionCode FROM Permission p JOIN RolePermission rp ON p.id = rp.permissionId "
+            + "WHERE rp.roleId IN :roleIds")
+    List<Object[]> findCodesByRoleIds(@Param("roleIds") List<Integer> roleIds);
     
     List<Permission> findByStatus(Integer status);
 
