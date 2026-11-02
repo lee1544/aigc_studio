@@ -2,13 +2,17 @@ package com.example.aigc.service;
 
 import com.example.aigc.constant.SystemConstant;
 import com.example.aigc.dto.CreateUserRequest;
+import com.example.aigc.dto.contract.CreateUserContractRequest;
+import com.example.aigc.dto.contract.UpdateUserContractRequest;
 import com.example.aigc.entity.Role;
 import com.example.aigc.entity.User;
 import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
+import com.example.aigc.exception.ConflictException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.exception.UnauthorizedException;
 import com.example.aigc.filter.UserPermissionCache;
+import com.example.aigc.filter.UserSessionCache;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.repository.UserRoleRepository;
@@ -26,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Service
 public class UserService {
@@ -47,6 +52,12 @@ public class UserService {
 
     @Autowired
     private UserPermissionCache userPermissionCache;
+
+    @Autowired
+    private UserSessionCache userSessionCache;
+
+    @Autowired
+    private FeaturePermissionService featurePermissionService;
 
     @Transactional
     public User createUser(Integer currentOrgId, CreateUserRequest request) {
@@ -258,5 +269,117 @@ public class UserService {
         }
         // 角色变更后清除该用户的权限缓存
         userPermissionCache.evict(userId);
+    }
+
+    // ==================== 契约：/api/admin/users 管理 ====================
+
+    /** POST /api/admin/users：创建创作者账号，可选 features。 */
+    @Transactional
+    public User createCreator(CreateUserContractRequest req) {
+        if (req.getEmail() == null || req.getEmail().isEmpty()) {
+            throw new BusinessException("email 不能为空");
+        }
+        if (userRepository.existsByEmail(req.getEmail())) {
+            throw new ConflictException("邮箱已存在");
+        }
+        User user = new User();
+        user.setUsername(req.getEmail());
+        user.setEmail(req.getEmail());
+        user.setName(req.getName());
+        user.setPassword(passwordEncoder.encode(req.getPassword()));
+        user.setRole("user");
+        user.setStatus(1);
+        user.setTokenVersion(0);
+        user.setAccountSource("管理员创建");
+        user.setOrgId(0);
+        user.setCreateTime(LocalDateTime.now());
+        user.setUpdateTime(LocalDateTime.now());
+        user = userRepository.save(user);
+        // features 省略时全 false；与账号行同事务
+        featurePermissionService.initForNewUser(user, req.getFeatures());
+        userSessionCache.evict(user.getId());
+        return user;
+    }
+
+    /** PATCH /api/admin/users/{id}：未传字段沿用；密码/邮箱/状态修改撤销旧 token。 */
+    @Transactional
+    public User patchCreator(Integer userId, UpdateUserContractRequest req) {
+        User user = requireCreator(userId);
+        boolean revoke = false;
+        if (req.getName() != null) {
+            user.setName(req.getName());
+        }
+        if (req.getEmail() != null && !req.getEmail().equals(user.getEmail())) {
+            if (userRepository.existsByEmail(req.getEmail())) {
+                throw new ConflictException("邮箱已存在");
+            }
+            user.setEmail(req.getEmail());
+            user.setUsername(req.getEmail());
+            revoke = true;
+        }
+        if (req.getPhone() != null) {
+            user.setPhone(req.getPhone());
+        }
+        if (req.getStatus() != null) {
+            Integer s = com.example.aigc.dto.contract.UserMapper.statusToInt(req.getStatus());
+            if (s == null || s < 0) {
+                throw new BusinessException("状态只能为 active/disabled");
+            }
+            user.setStatus(s);
+            revoke = true;
+        }
+        if (req.getPassword() != null && !req.getPassword().isEmpty()) {
+            if (req.getPassword().length() < 6) {
+                throw new BusinessException("密码至少 6 位");
+            }
+            user.setPassword(passwordEncoder.encode(req.getPassword()));
+            revoke = true;
+        }
+        if (revoke) {
+            user.setTokenVersion(user.getTokenVersion() + 1);
+        }
+        user.setUpdateTime(LocalDateTime.now());
+        user = userRepository.save(user);
+        userSessionCache.evict(user.getId());
+        userPermissionCache.evict(user.getId());
+        return user;
+    }
+
+    /** PATCH /api/admin/users/{id}/status：启用或禁用。 */
+    @Transactional
+    public User patchCreatorStatus(Integer userId, String status) {
+        User user = requireCreator(userId);
+        Integer s = com.example.aigc.dto.contract.UserMapper.statusToInt(status);
+        if (s == null || s < 0) {
+            throw new BusinessException("状态只能为 active/disabled");
+        }
+        user.setStatus(s);
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setUpdateTime(LocalDateTime.now());
+        user = userRepository.save(user);
+        userSessionCache.evict(user.getId());
+        userPermissionCache.evict(user.getId());
+        return user;
+    }
+
+    /** DELETE /api/admin/users/{id}：软删除，保留历史。 */
+    @Transactional
+    public void softDeleteCreator(Integer userId) {
+        User user = requireCreator(userId);
+        user.setStatus(-1);
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setUpdateTime(LocalDateTime.now());
+        userRepository.save(user);
+        userSessionCache.evict(user.getId());
+        userPermissionCache.evict(user.getId());
+    }
+
+    private User requireCreator(Integer userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("用户不存在"));
+        if (!"user".equals(user.getRole())) {
+            throw new BusinessException("仅可操作创作者账号");
+        }
+        return user;
     }
 }
