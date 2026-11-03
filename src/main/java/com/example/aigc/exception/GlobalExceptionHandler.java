@@ -31,9 +31,14 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Object>> handleBusinessException(BusinessException e, HttpServletRequest request) {
-        logger.error("业务异常 - {}: {}", request.getRequestURI(), e.getMessage());
-        ApiResponse<Object> response = new ApiResponse<>(e.getCode(), e.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        // 业务异常属于可预期的客户端错误，使用 warn 且保留调用方声明的状态码
+        Integer code = e.getCode();
+        if (code == null || code < 100 || code > 599) {
+            code = HttpStatus.BAD_REQUEST.value();
+        }
+        logger.warn("业务异常 - {}: {}", request.getRequestURI(), e.getMessage());
+        ApiResponse<Object> response = new ApiResponse<>(code, e.getMessage());
+        return ResponseEntity.status(code).body(response);
     }
     
     @ExceptionHandler(UnauthorizedException.class)

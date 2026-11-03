@@ -112,7 +112,7 @@ java -jar aigc-studio.jar --spring.profiles.active=prod
 
 | 模块 | 路径 | 所需权限 |
 |---|---|---|
-| 用户 | `GET/POST /api/users`，`GET/PUT/DELETE /api/users/{id}`，`/{id}/status`、`/{id}/password`、`/{id}/reset-password`、`/{id}/roles` | `user:*` |
+| 用户 | `GET/POST /api/users`，`GET/PUT/DELETE /api/users/{id}`，`/{id}/status`、`/{id}/password`、`/{id}/reset-password`、`/{id}/roles`（旧版，建议改用 `/api/admin/users`） | `user:*` |
 | 组织 | `GET/POST /api/organizations`，`GET/PUT/DELETE /api/organizations/{id}` | `org:*` |
 | 角色 | `GET/POST /api/roles`，`PUT/DELETE /api/roles/{id}`，`/{id}/permissions` | `role:*` |
 | 权限 | `GET /api/permissions`，`PUT /api/permissions/{id}/status` | `role:view` / 超管 |
@@ -129,6 +129,10 @@ java -jar aigc-studio.jar --spring.profiles.active=prod
 > 积分/计费/生成/执行/任务/文件/模型目录等 Node 归属路由在 Java 侧统一返回 503，不在上表。完整 128 路由清单见 `static/docs/backend-handoff/route-index.md`。
 
 统一响应体：`{code, message, data, timestamp}`；分页封装见 `dto/PageResponse`。财务/权限/模型配置响应头 `Cache-Control: no-store`。
+
+分页：`GET /api/projects` 与 `GET /api/admin/workflows` 支持可选 `page` / `size`。不传时保持原数组响应；传入时返回 Spring `Page` 结构（`content/totalElements/totalPages/...`），`size` 上限分别为 200 / 100。
+
+会话撤销：改密、禁用、软删除、退出都会递增 `t_user.token_version`，旧 token 立即失效；退出会同时登出该账号的其他会话（当前为单会话模型）。角色权限变更在事务提交后失效相关用户的会话缓存。
 
 ## 目录结构
 
@@ -165,6 +169,13 @@ mvn clean package
 java -jar target/aigc_studio-0.0.1-SNAPSHOT.jar
 # 环境变量：DB_URL / DB_USERNAME / DB_PASSWORD / JWT_SECRET / NODE_CONFIG_READ_TOKEN
 # 可选：TENCENT_TOKENHUB_KEY / DEEPSEEK_KEY / ALIYUN_BAILIAN_KEY_1 / ALIYUN_BAILIAN_KEY_2
+# 跨域：CORS_ALLOWED_ORIGINS（逗号分隔；同源部署可忽略，分域部署务必显式配置）
 ```
 
 网关需将 Node 归属路径（`/api/admin/points/**`、`/api/points/**`、`/api/billing/**`、`/api/generate/**`、`/api/text-studio/**`、`/api/workflows/**` 运行、`/api/music/**`、`/api/canvas/**`、`/api/digital-humans/**`、`/api/models`、签名媒体等）直送 Node，不经过本 Java 服务。
+
+## 本地构建与测试
+
+项目当前以 Java 8 + Spring Boot 2.6.13 编译。若本机 Maven 仍是 3.0.x，`mvn test` 可能因 surefire 与 Maven 版本不兼容、或离线仓库缺少 `surefire-junit-platform` 而失败；这只影响本地测试执行，不影响 `mvn -o -DskipTests compile`。
+
+建议本地/CI 使用 Maven 3.9.x 与 JDK 8u202+（或 JDK 11/17，需同步升级 Spring Boot），并尽快补上 Maven Wrapper（`mvnw`）以固定构建工具版本。后续升级 Spring Boot 3.x 时需同时处理 `javax.* → jakarta.*` 与 jjwt 0.9.x → 0.11+。

@@ -23,6 +23,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 旧版用户管理：/api/users（按组织 + RBAC 权限码）。
+ * <p>
+ * 新接入请使用 {@code /api/admin/users}（{@link AdminUserController}），
+ * 两者共享同一套会话撤销逻辑；本控制器保留仅为兼容旧管理后台，后续版本将下线。
+ */
+@Deprecated
 @RestController
 @RequestMapping("/api/users")
 public class UserController {

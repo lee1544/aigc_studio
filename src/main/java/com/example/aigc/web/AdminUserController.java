@@ -1,5 +1,6 @@
 package com.example.aigc.web;
 
+import com.example.aigc.annotation.RequirePermission;
 import com.example.aigc.dto.contract.AdminUserListItemDto;
 import com.example.aigc.dto.contract.ContractUserDto;
 import com.example.aigc.dto.contract.CreateUserContractRequest;
@@ -36,6 +37,7 @@ public class AdminUserController {
      * 创作者列表。page 从 0 开始；pageSize 有效范围 1-100，越界或非正数按 20。
      * keyword 模糊匹配 name/realName/email/username/phone；status=active|disabled|deleted|all，缺省排除 deleted。
      */
+    @RequirePermission("user:view")
     @GetMapping
     public Map<String, Object> list(
             @RequestParam(name = "page", defaultValue = "0") int page,
@@ -51,12 +53,14 @@ public class AdminUserController {
         return m;
     }
 
+    @RequirePermission("user:create")
     @PostMapping
     public ContractUserDto create(@Valid @RequestBody CreateUserContractRequest req) {
         User u = userService.createCreator(req);
         return UserMapper.toListItem(u);
     }
 
+    @RequirePermission("user:update")
     @PatchMapping("/{id}")
     public ContractUserDto patch(@PathVariable Integer id,
                                  @Valid @RequestBody UpdateUserContractRequest req) {
@@ -64,11 +68,13 @@ public class AdminUserController {
         return UserMapper.toListItem(u);
     }
 
+    @RequirePermission("user:delete")
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Integer id) {
         userService.softDeleteCreator(id);
     }
 
+    @RequirePermission("user:update")
     @PatchMapping("/{id}/status")
     public ContractUserDto patchStatus(@PathVariable Integer id,
                                        @Valid @RequestBody UpdateUserStatusRequest req) {

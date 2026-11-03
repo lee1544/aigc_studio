@@ -135,15 +135,6 @@ public class UserService {
         return user;
     }
 
-    /**
-     * 轻量查询：只获取用户真实姓名，不查组织信息
-     */
-    public String getUserRealName(Integer userId) {
-        return userRepository.findById(userId)
-                .map(User::getRealName)
-                .orElse(null);
-    }
-
     public Map<Integer, String> getRealNamesByIds(List<Integer> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return new HashMap<>();
