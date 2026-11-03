@@ -16,7 +16,7 @@ public class UpdateUserContractRequest {
     private String name;
 
     @Email
-    @Size(max = 254)
+    @Size(max = 50)
     private String email;
 
     @Size(max = 32)

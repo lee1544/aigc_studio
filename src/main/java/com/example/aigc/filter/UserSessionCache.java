@@ -2,6 +2,7 @@ package com.example.aigc.filter;
 
 import com.example.aigc.constant.FeaturePermissions;
 import com.example.aigc.entity.User;
+import com.example.aigc.event.SessionPermissionChangedEvent;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.service.PermissionService;
 import com.example.aigc.service.UserRoleService;
@@ -9,6 +10,8 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -87,10 +90,22 @@ public class UserSessionCache {
         List<Integer> roleIds = userRoleService.getRoleIdsByUserId(userId);
         List<String> codes = permissionService.getPermissionCodesByRoleIds(roleIds);
 
-        // 合并 feature 与 admin 权限码，保持去重
+        // 角色权限码已包含个人 feature 角色下的 26 项 feature，去重后作为会话权限快照
         Set<String> merged = new LinkedHashSet<>(codes);
-        // 个人角色中的 feature 权限码已被 permissionService 读出，无需额外处理
         return new SessionInfo(userId, user.getTokenVersion(), user.getRole(), new ArrayList<>(merged));
+    }
+
+    /**
+     * 角色权限变更后失效相关会话。事务提交后再清理，避免请求在提交前回填旧权限。
+     * 无事务调用时（例如单元测试）通过 fallbackExecution 立即执行。
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onSessionPermissionChanged(SessionPermissionChangedEvent event) {
+        if (event.isAll()) {
+            cache.invalidateAll();
+            return;
+        }
+        event.getUserIds().forEach(cache::invalidate);
     }
 
     public void evict(Integer userId) {

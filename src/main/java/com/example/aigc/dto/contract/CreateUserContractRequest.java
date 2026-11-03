@@ -19,6 +19,7 @@ public class CreateUserContractRequest {
 
     @Email
     @NotBlank
+    @Size(max = 50)
     private String email;
 
     @NotBlank

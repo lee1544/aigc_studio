@@ -1,5 +1,6 @@
 package com.example.aigc.service;
 
+import com.example.aigc.constant.FeaturePermissions;
 import com.example.aigc.constant.SystemConstant;
 import com.example.aigc.dto.CreateOrganizationRequest;
 import com.example.aigc.dto.UpdateOrganizationRequest;
@@ -9,6 +10,7 @@ import com.example.aigc.entity.User;
 import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.NotFoundException;
+import com.example.aigc.filter.UserSessionCache;
 import com.example.aigc.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -43,6 +45,9 @@ public class OrganizationService {
 
     @Autowired
     private RolePermissionRepository rolePermissionRepository;
+
+    @Autowired
+    private UserSessionCache userSessionCache;
 
     @Transactional
     public Organization createOrganization(CreateOrganizationRequest request) {
@@ -100,12 +105,21 @@ public class OrganizationService {
     }
 
     private void createOrgAdminUser(Integer orgId, CreateOrganizationRequest request) {
+        if (userRepository.existsByUsername(request.getAdminUsername())) {
+            throw new BusinessException("管理员用户名已存在");
+        }
         User adminUser = new User();
         adminUser.setUsername(request.getAdminUsername());
         adminUser.setPassword(passwordEncoder.encode(request.getAdminPassword()));
         adminUser.setRealName(request.getAdminRealName());
+        adminUser.setName(request.getAdminRealName());
         adminUser.setOrgId(orgId);
+        // 组织管理员必须能被 /api/admin/login 识别（该入口要求 role=admin）
+        adminUser.setRole("admin");
         adminUser.setStatus(1);
+        adminUser.setTokenVersion(0);
+        adminUser.setPermissionVersion(0);
+        adminUser.setAccountSource("组织管理员");
         adminUser.setCreateTime(LocalDateTime.now());
         adminUser.setUpdateTime(LocalDateTime.now());
         userRepository.save(adminUser);
@@ -173,11 +187,23 @@ public class OrganizationService {
         Organization org = organizationRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("组织不存在"));
 
+        LocalDateTime now = LocalDateTime.now();
+
+        // 用户改为软删除：保留审计与历史关联，同时立即撤销其会话
         List<User> users = userRepository.findByOrgId(id);
         for (User user : users) {
             userRoleRepository.deleteByUserId(user.getId());
+            // 个人 feature 角色 org_id 为 NULL，不属于组织角色，需要按用户清理
+            roleRepository.findByRoleCode(FeaturePermissions.PERSONAL_ROLE(user.getId())).ifPresent(role -> {
+                rolePermissionRepository.deleteByRoleId(role.getId());
+                roleRepository.delete(role);
+            });
+            user.setStatus(-1);
+            user.setTokenVersion(user.getTokenVersion() + 1);
+            user.setUpdateTime(now);
+            userRepository.save(user);
+            userSessionCache.evict(user.getId());
         }
-        userRepository.deleteAll(users);
 
         List<Role> roles = roleRepository.findByOrgId(id);
         for (Role role : roles) {

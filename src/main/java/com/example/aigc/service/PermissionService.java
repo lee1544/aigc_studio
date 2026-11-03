@@ -2,18 +2,21 @@ package com.example.aigc.service;
 
 import com.example.aigc.entity.Permission;
 import com.example.aigc.entity.RolePermission;
+import com.example.aigc.entity.UserRole;
+import com.example.aigc.event.SessionPermissionChangedEvent;
 import com.example.aigc.exception.BusinessException;
-import com.example.aigc.filter.UserPermissionCache;
 import com.example.aigc.repository.PermissionRepository;
 import com.example.aigc.repository.RolePermissionRepository;
 import com.example.aigc.repository.UserRoleRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -34,7 +37,7 @@ public class PermissionService {
     private UserRoleRepository userRoleRepository;
 
     @Autowired
-    private UserPermissionCache userPermissionCache;
+    private ApplicationEventPublisher eventPublisher;
 
     public List<String> getPermissionCodesByRoleIds(List<Integer> roleIds) {
         if (roleIds == null || roleIds.isEmpty()) {
@@ -138,7 +141,8 @@ public class PermissionService {
         permission.setStatus(status);
         permission.setUpdateTime(LocalDateTime.now());
         Permission saved = permissionRepository.save(permission);
-        userPermissionCache.evictAll();
+        // 权限本身启停会影响所有持有该权限码的账号，直接失效全部会话
+        eventPublisher.publishEvent(SessionPermissionChangedEvent.all());
         return saved;
     }
 
@@ -182,10 +186,20 @@ public class PermissionService {
     }
 
     /**
-     * 根据角色ID清除拥有该角色的所有用户的权限缓存
+     * 根据角色ID清除拥有该角色的所有用户的会话权限缓存。
      */
     private void evictCacheByRoleId(Integer roleId) {
-        userRoleRepository.findByRoleId(roleId)
-                .forEach(ur -> userPermissionCache.evict(ur.getUserId()));
+        List<Integer> userIds = userRoleRepository.findByRoleId(roleId).stream()
+                .map(UserRole::getUserId)
+                .collect(Collectors.toList());
+        evictSessionsForUsers(userIds);
+    }
+
+    /** 供 RoleService 在删除角色（级联删除 user_role 前）显式指定受影响用户。 */
+    public void evictSessionsForUsers(Collection<Integer> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return;
+        }
+        eventPublisher.publishEvent(SessionPermissionChangedEvent.forUsers(userIds));
     }
 }

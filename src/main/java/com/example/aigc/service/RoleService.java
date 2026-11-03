@@ -6,7 +6,6 @@ import com.example.aigc.entity.Role;
 import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.NotFoundException;
-import com.example.aigc.filter.UserPermissionCache;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRoleRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,9 +29,6 @@ public class RoleService {
 
     @Autowired
     private UserRoleRepository userRoleRepository;
-
-    @Autowired
-    private UserPermissionCache userPermissionCache;
     
     public List<Role> getRolesByOrgId(Integer orgId) {
         List<Role> roles = roleRepository.findByOrgId(orgId);
@@ -96,13 +92,13 @@ public class RoleService {
         if (role.getRoleCode().startsWith(SystemConstant.NORMAL_ADMIN_ROLE_CODE_PREFIX)) {
             throw new BusinessException("普通管理员角色不能删除");
         }
-        // 在删除角色前先获取拥有该角色的用户，用于后续清除缓存
+        // 在删除角色前先获取拥有该角色的用户：删除后 user_role 可能已被级联清理
         List<UserRole> affectedUserRoles = userRoleRepository.findByRoleId(id);
+        permissionService.evictSessionsForUsers(affectedUserRoles.stream()
+                .map(UserRole::getUserId)
+                .collect(Collectors.toList()));
         roleRepository.deleteById(id);
-        // clearRolePermissions 内部也会尝试清缓存，但 user_role 可能已被级联删除
         permissionService.clearRolePermissions(id);
-        // 兜底：用删除前获取的用户记录确保缓存被清除
-        affectedUserRoles.forEach(ur -> userPermissionCache.evict(ur.getUserId()));
     }
     
     @Transactional

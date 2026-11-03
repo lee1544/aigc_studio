@@ -11,7 +11,6 @@ import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.ConflictException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.exception.UnauthorizedException;
-import com.example.aigc.filter.UserPermissionCache;
 import com.example.aigc.filter.UserSessionCache;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRepository;
@@ -29,7 +28,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -49,9 +48,6 @@ public class UserService {
 
     @Autowired
     private OrganizationService organizationService;
-
-    @Autowired
-    private UserPermissionCache userPermissionCache;
 
     @Autowired
     private UserSessionCache userSessionCache;
@@ -148,38 +144,6 @@ public class UserService {
                 .orElse(null);
     }
 
-    // ==================== 用户姓名缓存查询 ====================
-
-    private static final int MAX_NAME_CACHE = 100;
-    private final Map<Integer, String> userNameCache = new ConcurrentHashMap<>();
-
-    /**
-     * 获取用户显示姓名（带本地缓存，避免重复查库）
-     * <p>
-     * 与 {@link #getUserRealName} 的区别：
-     * <ul>
-     *   <li>内部缓存，相同 userId 不会重复查库</li>
-     *   <li>userId 为 null 时返回 "未知"</li>
-     *   <li>用户不存在时返回 "用户(id)" 而非 null</li>
-     * </ul>
-     */
-    public String getUserName(Integer userId) {
-        if (userId == null) return "未知";
-        // 防止缓存无限增长：超过上限时清空。必须在 computeIfAbsent 之外操作，
-        // 否则会在其 mapping function 内修改同一个 map，违反 ConcurrentHashMap 约束。
-        if (userNameCache.size() >= MAX_NAME_CACHE) {
-            userNameCache.clear();
-        }
-        return userNameCache.computeIfAbsent(userId, id -> {
-            try {
-                String name = getUserRealName(id);
-                return name != null ? name : "用户(" + id + ")";
-            } catch (Exception e) {
-                return "用户(" + id + ")";
-            }
-        });
-    }
-
     public Map<Integer, String> getRealNamesByIds(List<Integer> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return new HashMap<>();
@@ -208,9 +172,12 @@ public class UserService {
                 .orElseThrow(() -> new NotFoundException("用户不存在"));
 
         user.setStatus(status);
+        // 禁用/启用都撤销旧 token，避免已禁用账号继续访问
+        user.setTokenVersion(user.getTokenVersion() + 1);
         user.setUpdateTime(LocalDateTime.now());
-
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        userSessionCache.evict(userId);
+        return saved;
     }
 
     @Transactional
@@ -219,8 +186,12 @@ public class UserService {
                 .orElseThrow(() -> new NotFoundException("用户不存在"));
 
         user.setPassword(passwordEncoder.encode(password));
+        // 改密后旧 token 必须立即失效
+        user.setTokenVersion(user.getTokenVersion() + 1);
         user.setUpdateTime(LocalDateTime.now());
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        userSessionCache.evict(userId);
+        return saved;
     }
 
     @Transactional
@@ -232,11 +203,11 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(SystemConstant.DEFAULT_SYSTEM_PASSWORD));
         // 清空最后登录时间，使下次登录时触发 firstLogin=true，提示修改密码
         user.setLastLoginTime(null);
+        user.setTokenVersion(user.getTokenVersion() + 1);
         user.setUpdateTime(LocalDateTime.now());
         userRepository.save(user);
 
-        // 清除权限缓存
-        userPermissionCache.evict(userId);
+        userSessionCache.evict(userId);
 
         return user;
     }
@@ -248,7 +219,7 @@ public class UserService {
         }
         userRoleRepository.deleteByUserId(userId);
         userRepository.deleteById(userId);
-        userPermissionCache.evict(userId);
+        userSessionCache.evict(userId);
     }
 
     @Transactional
@@ -258,7 +229,8 @@ public class UserService {
             for (Integer roleId : roleIds) {
                 Role role = roleRepository.findById(roleId)
                         .orElseThrow(() -> new NotFoundException("角色不存在"));
-                if (!role.getOrgId().equals(currentOrgId)) {
+                // org_id 为 NULL 表示全局角色（如超级管理员），任何组织都可以分配
+                if (role.getOrgId() != null && !Objects.equals(role.getOrgId(), currentOrgId)) {
                     throw new UnauthorizedException("角色不属于当前组织");
                 }
                 UserRole userRole = new UserRole();
@@ -267,8 +239,8 @@ public class UserService {
                 userRoleRepository.save(userRole);
             }
         }
-        // 角色变更后清除该用户的权限缓存
-        userPermissionCache.evict(userId);
+        // 角色变更后立即刷新该用户的会话权限
+        userSessionCache.evict(userId);
     }
 
     // ==================== 契约：/api/admin/users 管理 ====================
@@ -341,7 +313,6 @@ public class UserService {
         user.setUpdateTime(LocalDateTime.now());
         user = userRepository.save(user);
         userSessionCache.evict(user.getId());
-        userPermissionCache.evict(user.getId());
         return user;
     }
 
@@ -358,7 +329,6 @@ public class UserService {
         user.setUpdateTime(LocalDateTime.now());
         user = userRepository.save(user);
         userSessionCache.evict(user.getId());
-        userPermissionCache.evict(user.getId());
         return user;
     }
 
@@ -371,7 +341,6 @@ public class UserService {
         user.setUpdateTime(LocalDateTime.now());
         userRepository.save(user);
         userSessionCache.evict(user.getId());
-        userPermissionCache.evict(user.getId());
     }
 
     private User requireCreator(Integer userId) {

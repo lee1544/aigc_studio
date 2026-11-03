@@ -7,7 +7,7 @@ import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.exception.UnauthorizedException;
-import com.example.aigc.filter.UserPermissionCache;
+import com.example.aigc.filter.UserSessionCache;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.repository.UserRoleRepository;
@@ -50,7 +50,7 @@ class UserServiceTest {
     private OrganizationService organizationService;
 
     @Mock
-    private UserPermissionCache userPermissionCache;
+    private UserSessionCache userSessionCache;
 
     @InjectMocks
     private UserService userService;
@@ -214,7 +214,9 @@ class UserServiceTest {
 
         assertNotNull(result);
         assertEquals(0, result.getStatus());
+        assertEquals(1, result.getTokenVersion());
         verify(userRepository).save(testUser);
+        verify(userSessionCache).evict(1);
     }
 
     @Test
@@ -238,7 +240,9 @@ class UserServiceTest {
         User result = userService.updateUserPassword(1, "newPassword");
 
         assertNotNull(result);
+        assertEquals(1, result.getTokenVersion());
         verify(userRepository).save(testUser);
+        verify(userSessionCache).evict(1);
     }
 
     @Test
@@ -261,7 +265,7 @@ class UserServiceTest {
 
         verify(userRoleRepository).deleteByUserId(1);
         verify(userRepository).deleteById(1);
-        verify(userPermissionCache).evict(1);
+        verify(userSessionCache).evict(1);
     }
 
     @Test
@@ -273,7 +277,7 @@ class UserServiceTest {
 
         verify(userRoleRepository, never()).deleteByUserId(anyInt());
         verify(userRepository, never()).deleteById(anyInt());
-        verify(userPermissionCache, never()).evict(anyInt());
+        verify(userSessionCache, never()).evict(anyInt());
     }
 
     // ==================== assignRolesToUser ====================
@@ -297,7 +301,7 @@ class UserServiceTest {
         verify(userRoleRepository).deleteByUserId(1);
         verify(roleRepository, times(2)).findById(anyInt());
         verify(userRoleRepository, times(2)).save(any(UserRole.class));
-        verify(userPermissionCache).evict(1);
+        verify(userSessionCache).evict(1);
     }
 
     @Test
@@ -328,5 +332,19 @@ class UserServiceTest {
 
         verify(userRoleRepository).deleteByUserId(1);
         verify(userRoleRepository, never()).save(any(UserRole.class));
+    }
+
+    @Test
+    void testAssignRolesToUser_GlobalRoleAllowed() {
+        Role globalRole = new Role();
+        globalRole.setId(9);
+        globalRole.setOrgId(null); // 全局角色（超级管理员）
+
+        when(roleRepository.findById(9)).thenReturn(Optional.of(globalRole));
+
+        userService.assignRolesToUser(1, new Integer[]{9}, 1);
+
+        verify(userRoleRepository).save(any(UserRole.class));
+        verify(userSessionCache).evict(1);
     }
 }
