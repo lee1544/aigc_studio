@@ -20,6 +20,7 @@ import com.example.aigc.repository.ModelConnectionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -29,10 +30,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.HttpStatusCodeException;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -52,13 +56,27 @@ public class ModelConnectionService {
     @Autowired private ModelConnectionCheckRepository checkRepository;
     @Autowired private ConfigVersionService configVersionService;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public ModelConnectionService(RestTemplateBuilder restTemplateBuilder) {
+        // 外部厂商接口不可控：必须设置连接/读取超时，避免检测请求无限挂起
+        this.restTemplate = restTemplateBuilder
+                .setConnectTimeout(Duration.ofSeconds(3))
+                .setReadTimeout(Duration.ofSeconds(10))
+                .build();
+    }
 
     // ---------- 连接 ----------
 
     public List<ConnectionDto> listConnections() {
+        Map<String, List<ModelConfig>> modelsByConnection = new HashMap<>();
+        for (ModelConfig mc : modelConfigRepository.findAll()) {
+            if (mc.getConnectionId() != null) {
+                modelsByConnection.computeIfAbsent(mc.getConnectionId(), key -> new ArrayList<>()).add(mc);
+            }
+        }
         return connectionRepository.findAll().stream()
-                .map(this::toConnectionDto)
+                .map(c -> toConnectionDto(c, modelsByConnection.getOrDefault(c.getId(), Collections.emptyList())))
                 .collect(Collectors.toList());
     }
 
@@ -75,7 +93,7 @@ public class ModelConnectionService {
         c.setApiKey(req.getApiKey());
         connectionRepository.save(c);
         configVersionService.bump();
-        return toConnectionDto(c);
+        return toConnectionDto(c, Collections.emptyList());
     }
 
     @Transactional
@@ -104,7 +122,7 @@ public class ModelConnectionService {
         // 密钥或地址变更后清除旧检测结果
         checkRepository.findById(id).ifPresent(checkRepository::delete);
         configVersionService.bump();
-        return toConnectionDto(c);
+        return toConnectionDto(c, related);
     }
 
     @Transactional
@@ -120,7 +138,6 @@ public class ModelConnectionService {
     }
 
     /** POST /model-connections/{id}/check：只请求 /v1/models 目录，不生成。 */
-    @Transactional
     public ModelConnectionCheck checkConnection(String id) {
         ModelConnection c = connectionRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("连接不存在"));
@@ -161,8 +178,9 @@ public class ModelConnectionService {
             }
         } catch (Exception e) {
             status = "unsupported";
-            message = e.getMessage() == null ? "请求失败" : e.getMessage();
-            log.warn("连接检测失败 id={}: {}", id, message);
+            // 不把内部异常信息（可能含主机/端口）回显给调用方
+            message = "请求失败，请检查端点与网络";
+            log.warn("连接检测失败 id={}: {}", id, e.getMessage(), e);
         }
         int latency = (int) (System.currentTimeMillis() - start);
 
@@ -182,8 +200,12 @@ public class ModelConnectionService {
     // ---------- 模型配置 ----------
 
     public List<ModelConfigDto> listModelConfigs() {
+        Map<String, ModelConnection> connections = new HashMap<>();
+        for (ModelConnection c : connectionRepository.findAll()) {
+            connections.put(c.getId(), c);
+        }
         return modelConfigRepository.findAll().stream()
-                .map(this::toModelConfigDto)
+                .map(mc -> toModelConfigDto(mc, connections))
                 .collect(Collectors.toList());
     }
 
@@ -205,8 +227,7 @@ public class ModelConnectionService {
         if (deletedModelConfigRepository.existsByFeatureAndModel(req.getFeature(), req.getModel())) {
             throw new BusinessException("该模型已被删除，不能直接复活");
         }
-        long count = modelConfigRepository.findByFeature(req.getFeature()).stream()
-                .filter(m -> Integer.valueOf(1).equals(m.getCustom())).count();
+        long count = modelConfigRepository.countByFeatureAndCustom(req.getFeature(), 1);
         if (count >= MAX_CUSTOM_PER_FEATURE) {
             throw new BusinessException("每分类最多 " + MAX_CUSTOM_PER_FEATURE + " 个自定义模型");
         }
@@ -277,9 +298,15 @@ public class ModelConnectionService {
     }
 
     private boolean hasEffectiveKey(ModelConfig mc) {
+        return hasEffectiveKey(mc, null);
+    }
+
+    private boolean hasEffectiveKey(ModelConfig mc, Map<String, ModelConnection> connections) {
         if (mc.getApiKey() != null && !mc.getApiKey().isEmpty()) return true;
         if (mc.getConnectionId() == null || mc.getConnectionId().isEmpty()) return false;
-        ModelConnection c = connectionRepository.findById(mc.getConnectionId()).orElse(null);
+        ModelConnection c = connections != null
+                ? connections.get(mc.getConnectionId())
+                : connectionRepository.findById(mc.getConnectionId()).orElse(null);
         return c != null && c.getApiKey() != null && !c.getApiKey().isEmpty();
     }
 
@@ -300,14 +327,14 @@ public class ModelConnectionService {
 
     // ---------- 映射 ----------
 
-    private ConnectionDto toConnectionDto(ModelConnection c) {
+    private ConnectionDto toConnectionDto(ModelConnection c, List<ModelConfig> models) {
         ConnectionDto dto = new ConnectionDto();
         dto.setId(c.getId());
         dto.setName(c.getName());
         dto.setProvider(c.getProvider());
         dto.setBaseUrl(c.getBaseUrl());
         dto.setHasKey(c.getApiKey() != null && !c.getApiKey().isEmpty());
-        List<ConnectionDto.ModelRef> refs = modelConfigRepository.findByConnectionId(c.getId()).stream()
+        List<ConnectionDto.ModelRef> refs = models.stream()
                 .map(mc -> {
                     ConnectionDto.ModelRef r = new ConnectionDto.ModelRef();
                     r.setFeature(mc.getFeature());
@@ -321,6 +348,10 @@ public class ModelConnectionService {
     }
 
     private ModelConfigDto toModelConfigDto(ModelConfig mc) {
+        return toModelConfigDto(mc, null);
+    }
+
+    private ModelConfigDto toModelConfigDto(ModelConfig mc, Map<String, ModelConnection> connections) {
         ModelConfigDto dto = new ModelConfigDto();
         dto.setConnectionId(mc.getConnectionId());
         dto.setFeature(mc.getFeature());
@@ -331,7 +362,7 @@ public class ModelConnectionService {
         dto.setRequestTemplate(mc.getRequestTemplate());
         dto.setEnabled(Integer.valueOf(1).equals(mc.getEnabled()));
         // hasKey 按“执行时是否拿得到密钥”判定：自身密钥优先，其次来自绑定连接
-        dto.setHasKey(hasEffectiveKey(mc));
+        dto.setHasKey(hasEffectiveKey(mc, connections));
         dto.setSupported(ModelAdapterCatalog.supports(mc.getFeature(), mc.getAdapter()));
         dto.setCustom(Integer.valueOf(1).equals(mc.getCustom()));
         dto.setModes(Collections.emptyList());

@@ -50,7 +50,12 @@ public class NodeConfigService {
         m.put("updatedAt", UserMapper.iso(v.getUpdatedAt()));
 
         // connections（含真实密钥）
-        m.put("connections", connectionRepository.findAll().stream()
+        List<ModelConnection> connections = connectionRepository.findAll();
+        Map<String, ModelConnection> connectionById = new LinkedHashMap<>();
+        for (ModelConnection c : connections) {
+            connectionById.put(c.getId(), c);
+        }
+        m.put("connections", connections.stream()
                 .map(c -> {
                     Map<String, Object> cm = new LinkedHashMap<>();
                     cm.put("id", c.getId());
@@ -64,7 +69,7 @@ public class NodeConfigService {
 
         // modelConfigs（含解析后真实密钥、enabled boolean）
         m.put("modelConfigs", modelConfigRepository.findAll().stream()
-                .map(this::modelConfigView)
+                .map(mc -> modelConfigView(mc, connectionById))
                 .collect(Collectors.toList()));
 
         // agents（原始选择）
@@ -99,14 +104,14 @@ public class NodeConfigService {
         return m;
     }
 
-    private Map<String, Object> modelConfigView(ModelConfig mc) {
+    private Map<String, Object> modelConfigView(ModelConfig mc, Map<String, ModelConnection> connectionById) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("feature", mc.getFeature());
         m.put("model", mc.getModel());
         m.put("provider", mc.getProvider());
         m.put("adapter", mc.getAdapter());
         m.put("endpoint", mc.getEndpoint());
-        m.put("apiKey", effectiveKey(mc));
+        m.put("apiKey", effectiveKey(mc, connectionById));
         m.put("enabled", Integer.valueOf(1).equals(mc.getEnabled()));
         m.put("connectionId", mc.getConnectionId());
         m.put("requestTemplate", mc.getRequestTemplate());
@@ -114,14 +119,14 @@ public class NodeConfigService {
     }
 
     /** 最终有效密钥：自身密钥优先，否则回退绑定连接的密钥；都没有返回空串。 */
-    private String effectiveKey(ModelConfig mc) {
+    private String effectiveKey(ModelConfig mc, Map<String, ModelConnection> connectionById) {
         if (mc.getApiKey() != null && !mc.getApiKey().isEmpty()) {
             return mc.getApiKey();
         }
         if (mc.getConnectionId() == null || mc.getConnectionId().isEmpty()) {
             return "";
         }
-        ModelConnection c = connectionRepository.findById(mc.getConnectionId()).orElse(null);
+        ModelConnection c = connectionById.get(mc.getConnectionId());
         return c == null || c.getApiKey() == null ? "" : c.getApiKey();
     }
 

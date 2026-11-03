@@ -15,4 +15,7 @@ public interface ModelConfigRepository extends JpaRepository<ModelConfig, PK> {
     List<ModelConfig> findByEnabled(Integer enabled);
 
     List<ModelConfig> findByConnectionId(String connectionId);
+
+    /** 统计某分类下用户自建模型数量，避免为计数加载整批实体。 */
+    long countByFeatureAndCustom(String feature, Integer custom);
 }

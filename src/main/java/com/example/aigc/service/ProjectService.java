@@ -8,6 +8,8 @@ import com.example.aigc.repository.ProjectContentRepository;
 import com.example.aigc.repository.ProjectRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,11 @@ public class ProjectService {
 
     public List<Project> list(Integer userId) {
         return projectRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+    }
+
+    /** 分页版本；page/size 由 Controller 统一做边界收敛。 */
+    public Page<Project> list(Integer userId, int page, int size) {
+        return projectRepository.findByUserIdOrderByUpdatedAtDesc(userId, PageRequest.of(page, size));
     }
 
     @Transactional

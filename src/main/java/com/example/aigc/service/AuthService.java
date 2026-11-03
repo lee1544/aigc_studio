@@ -120,12 +120,35 @@ public class AuthService {
         return buildSessionUser(user, user.getLastLoginTime() == null);
     }
 
-    /** POST /api/auth/logout：撤销当前 token。 */
+    /**
+     * POST /api/auth/logout：撤销当前账号的会话。
+     * <p>
+     * 除内存黑名单外，同时递增 tokenVersion：重启或多实例部署时黑名单可能不共享，
+     * 而 tokenVersion 存在数据库里，旧 token 在所有节点上都会立即失效。
+     * 代价是同一账号的其他设备也会被登出（当前为单会话模型）。
+     */
     public void logout(String token) {
         if (token == null || token.isEmpty()) {
             return;
         }
         jwtTokenBlacklist.invalidate(token);
+
+        Integer userId;
+        try {
+            userId = jwtTokenUtil.getUserIdFromToken(token);
+        } catch (Exception e) {
+            // 过期/伪造 token 无需再写库
+            return;
+        }
+        if (userId == null) {
+            return;
+        }
+        userRepository.findById(userId).ifPresent(user -> {
+            user.setTokenVersion(user.getTokenVersion() + 1);
+            user.setUpdateTime(LocalDateTime.now());
+            userRepository.save(user);
+            userSessionCache.evict(userId);
+        });
     }
 
     private LoginResult buildLoginResult(User user, String role, boolean firstLogin) {

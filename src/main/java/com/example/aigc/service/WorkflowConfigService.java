@@ -6,6 +6,9 @@ import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.repository.ComfyWorkflowRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +35,12 @@ public class WorkflowConfigService {
         return repository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::toView)
                 .collect(Collectors.toList());
+    }
+
+    /** 分页版本；响应体按页收敛，避免 graph 过大时一次性返回全部工作流。 */
+    public Page<Map<String, Object>> list(int page, int size) {
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return repository.findAll(pageRequest).map(this::toView);
     }
 
     @Transactional

@@ -30,9 +30,6 @@ public class ConfigVersionService {
 
     @Transactional
     public void bump() {
-        ConfigVersion v = current();
-        v.setVersion(v.getVersion() + 1);
-        v.setUpdatedAt(LocalDateTime.now());
-        repository.save(v);
+        repository.bump(LocalDateTime.now());
     }
 }

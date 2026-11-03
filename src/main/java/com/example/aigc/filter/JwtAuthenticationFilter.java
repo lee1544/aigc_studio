@@ -1,6 +1,7 @@
 package com.example.aigc.filter;
 
 import com.example.aigc.utils.JwtTokenUtil;
+import io.jsonwebtoken.Claims;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -46,17 +47,34 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken("developer", null, new ArrayList<>());
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-            } else if (jwtTokenUtil.validateToken(token)) {
+            } else {
+                Claims claims;
+                try {
+                    // 一次解析完成签名 + 过期校验，后续字段直接复用
+                    claims = jwtTokenUtil.parseClaims(token);
+                } catch (Exception e) {
+                    // 无效或已过期：按未登录继续，由 Security 统一返回 401
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 // 检查 token 是否已被注销
                 if (jwtTokenBlacklist.isInvalid(token)) {
                     filterChain.doFilter(request, response);
                     return;
                 }
-                String username = jwtTokenUtil.getUsernameFromToken(token);
-                Integer userId = jwtTokenUtil.getUserIdFromToken(token);
-                Integer orgId = jwtTokenUtil.getOrgIdFromToken(token);
-                Integer tokenVersion = jwtTokenUtil.getTokenVersionFromToken(token);
-                String role = jwtTokenUtil.getRoleFromToken(token);
+                Object userIdClaim = claims.get("userId");
+                if (!(userIdClaim instanceof Number)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                Integer userId = ((Number) userIdClaim).intValue();
+                Object orgIdClaim = claims.get("orgId");
+                Integer orgId = orgIdClaim instanceof Number ? ((Number) orgIdClaim).intValue() : null;
+                Object versionClaim = claims.get("tokenVersion");
+                Integer tokenVersion = versionClaim instanceof Number ? ((Number) versionClaim).intValue() : 0;
+                Object roleClaim = claims.get("role");
+                String role = roleClaim == null ? "user" : roleClaim.toString();
+                String username = claims.getSubject();
 
                 // 会话版本校验：与库中 tokenVersion 不一致则视为已撤销（改密/禁用/删除/退出）
                 UserSessionCache.SessionInfo info = userSessionCache.get(userId);

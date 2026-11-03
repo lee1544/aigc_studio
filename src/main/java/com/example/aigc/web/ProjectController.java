@@ -6,7 +6,6 @@ import com.example.aigc.utils.UserContextUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,8 +19,16 @@ public class ProjectController {
     private ProjectService projectService;
 
     @GetMapping
-    public List<Project> list() {
-        return projectService.list(UserContextUtil.getCurrentUserId());
+    public Object list(@RequestParam(name = "page", required = false) Integer page,
+                       @RequestParam(name = "size", required = false) Integer size) {
+        Integer userId = UserContextUtil.getCurrentUserId();
+        // 不传分页参数时保持原契约（返回数组）；传入后返回 {content,totalElements,...}
+        if (page == null && size == null) {
+            return projectService.list(userId);
+        }
+        int safePage = page == null ? 0 : Math.max(page, 0);
+        int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 200);
+        return projectService.list(userId, safePage, safeSize);
     }
 
     @PostMapping

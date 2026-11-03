@@ -18,7 +18,7 @@ public class JwtTokenUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtTokenUtil.class);
 
-    /** HS512 的最小可用长度；低于该值启动即失败，避免运行期才暴露签名异常。 */
+    /** HS512 鐨勬渶灏忓彲鐢ㄩ暱搴︼紱浣庝簬璇ュ€煎惎鍔ㄥ嵆澶辫触锛岄伩鍏嶈繍琛屾湡鎵嶆毚闇茬鍚嶅紓甯搞€?*/
     private static final int MIN_SECRET_LENGTH = 32;
 
     @Value("${jwt.secret}")
@@ -31,14 +31,14 @@ public class JwtTokenUtil {
     void validateSecret() {
         if (secret == null || secret.trim().isEmpty()) {
             throw new IllegalStateException(
-                    "JWT_SECRET 未配置：请通过环境变量注入至少 " + MIN_SECRET_LENGTH + " 个字符的密钥");
+                    "JWT_SECRET 鏈厤缃細璇烽€氳繃鐜鍙橀噺娉ㄥ叆鑷冲皯 " + MIN_SECRET_LENGTH + " 涓瓧绗︾殑瀵嗛挜");
         }
         if (secret.trim().length() < MIN_SECRET_LENGTH) {
             throw new IllegalStateException(
-                    "JWT_SECRET 过短：至少 " + MIN_SECRET_LENGTH + " 个字符，当前 " + secret.trim().length());
+                    "JWT_SECRET 杩囩煭锛氳嚦灏?" + MIN_SECRET_LENGTH + " 涓瓧绗︼紝褰撳墠 " + secret.trim().length());
         }
         if (secret.trim().length() < 64) {
-            logger.warn("JWT_SECRET 长度为 {}，HS512 建议 64 字节以上密钥", secret.trim().length());
+            logger.warn("JWT_SECRET 闀垮害涓?{}锛孒S512 寤鸿 64 瀛楄妭浠ヤ笂瀵嗛挜", secret.trim().length());
         }
     }
     
@@ -52,8 +52,8 @@ public class JwtTokenUtil {
     }
 
     /**
-     * 契约签发：携带 tokenVersion（会话版本）与 role（admin/user）。
-     * exp 仍以毫秒存储（jjwt Date），符合前端契约。
+     * 濂戠害绛惧彂锛氭惡甯?tokenVersion锛堜細璇濈増鏈級涓?role锛坅dmin/user锛夈€?
+     * exp 浠嶄互姣瀛樺偍锛坖jwt Date锛夛紝绗﹀悎鍓嶇濂戠害銆?
      */
     public String generateToken(String subject, Integer userId, Integer orgId,
                                 Integer tokenVersion, String role) {
@@ -78,21 +78,21 @@ public class JwtTokenUtil {
     }
     
     public String getUsernameFromToken(String token) {
-        return getClaimsFromToken(token).getSubject();
+        return parseClaims(token).getSubject();
     }
     
     public Integer getUserIdFromToken(String token) {
-        Claims claims = getClaimsFromToken(token);
+        Claims claims = parseClaims(token);
         return (Integer) claims.get("userId");
     }
     
     public Integer getOrgIdFromToken(String token) {
-        Claims claims = getClaimsFromToken(token);
+        Claims claims = parseClaims(token);
         return (Integer) claims.get("orgId");
     }
 
     public Integer getTokenVersionFromToken(String token) {
-        Claims claims = getClaimsFromToken(token);
+        Claims claims = parseClaims(token);
         Object v = claims.get("tokenVersion");
         if (v instanceof Integer) {
             return (Integer) v;
@@ -101,29 +101,26 @@ public class JwtTokenUtil {
     }
 
     public String getRoleFromToken(String token) {
-        Claims claims = getClaimsFromToken(token);
+        Claims claims = parseClaims(token);
         Object v = claims.get("role");
         return v == null ? "user" : v.toString();
     }
     
     public Boolean validateToken(String token) {
         try {
-            Claims claims = getClaimsFromToken(token);
-            return !isTokenExpired(claims);
+            // 瑙ｆ瀽鎴愬姛鍗充唬琛ㄧ鍚嶄笌 exp 鍧囨湁鏁堬紙jjwt 浼氬杩囨湡 token 鎶?ExpiredJwtException锛?
+            parseClaims(token);
+            return true;
         } catch (Exception e) {
             return false;
         }
     }
-    
-    private Claims getClaimsFromToken(String token) {
+
+    /** 瑙ｆ瀽骞舵牎楠屼竴娆★紝渚涜姹傝繃婊ゅ櫒澶嶇敤锛岄伩鍏嶅悓涓€ token 鍙嶅鍋氱鍚嶆牎楠屻€?*/
+    public Claims parseClaims(String token) {
         return Jwts.parser()
                 .setSigningKey(secret)
                 .parseClaimsJws(token)
                 .getBody();
-    }
-    
-    private Boolean isTokenExpired(Claims claims) {
-        Date expiration = claims.getExpiration();
-        return expiration.before(new Date());
     }
 }

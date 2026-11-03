@@ -5,7 +5,6 @@ import com.example.aigc.service.WorkflowConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -57,8 +56,15 @@ public class ConfigController {
     // ---------- admin 工作流 CRUD（J06）----------
 
     @GetMapping("/api/admin/workflows")
-    public List<Map<String, Object>> listWorkflows() {
-        return workflowConfigService.list();
+    public Object listWorkflows(@RequestParam(name = "page", required = false) Integer page,
+                                @RequestParam(name = "size", required = false) Integer size) {
+        // 不传分页参数时保持原契约（返回数组）
+        if (page == null && size == null) {
+            return workflowConfigService.list();
+        }
+        int safePage = page == null ? 0 : Math.max(page, 0);
+        int safeSize = size == null ? 20 : Math.min(Math.max(size, 1), 100);
+        return workflowConfigService.list(safePage, safeSize);
     }
 
     @PostMapping("/api/admin/workflows")
