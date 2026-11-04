@@ -1502,7 +1502,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 
 ### 12.7 修改用户密码
 
-`PUT /api/users/{id}/password` · `user:update`
+`PUT /api/users/{id}/password` · 本人改密需登录；修改他人需 `user:update`
 
 请求：
 
@@ -1517,14 +1517,15 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 
 行为：
 
-- 调用方需拥有 `user:update`，且目标用户必须与调用方同组织，跨组织按 `404`。
-- 先用 BCrypt 校验目标账号的 `oldPassword`，不匹配返回 `400 原密码不正确`，且不写库、不撤销会话。
+- 本人改密（`id` 等于当前登录用户）属于自助通道，只要求登录并提供正确的 `oldPassword`，不要求 `user:update`；普通创作者可直接使用。
+- 修改他人密码需要 `user:update`，且目标用户必须与调用方同组织，跨组织或无权访问按 `403/404` 返回。
+- 先校验目标账号的 `oldPassword`，不匹配返回 `400 原密码不正确`，且不写库、不撤销会话。
 - 校验通过后更新密码、递增 `token_version` 并清理会话缓存，旧 token 立即失效。
 - 管理员免验证地强制重置仍使用 [12.8 重置用户密码](#128-重置用户密码)，或 [3.3 修改创作者](#33-修改创作者) 的 `password` 字段。
 
 响应 `200`：`User`。
 
-错误：`400` 原密码不正确 / 新密码长度非法；`404` 用户不存在（含跨组织）。
+错误：`400` 原密码不正确 / 新密码长度非法；`403` 无权修改他人密码；`404` 用户不存在（含跨组织）。
 
 ### 12.8 重置用户密码
 
@@ -1914,3 +1915,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-04 | `PUT /api/users/{id}/password` 改为必须提供 `oldPassword` 并通过 BCrypt 校验，失败返回 400 且不撤销会话 |
 | 2026-11-04 | 修复 `POST /api/projects` 因 `module` 超过 `VARCHAR(16)` 触发的 500：V2 迁移加宽到 64，创建/切换模块前置校验长度；数据库数据类异常统一返回 400 |
 | 2026-11-04 | 请求体 DTO 化：`/api/admin/studio-skills`、`/api/projects`（创建/保存正文/切换模块）、`/api/admin/agent/*/config`、`/api/admin/workflows` 改用带 Bean Validation 的 DTO，超长/缺失字段返回字段级 400；工作流请求字段统一为 `remoteWorkflowId` |
+| 2026-11-04 | `PUT /api/users/{id}/password` 支持本人自助改密：本人不再要求 `user:update`，凭 `oldPassword` 校验即可；修改他人仍要求同组织 + `user:update` |

@@ -7,6 +7,7 @@ import com.example.aigc.dto.UpdatePasswordRequest;
 import com.example.aigc.dto.UpdateUserRequest;
 import com.example.aigc.entity.Role;
 import com.example.aigc.entity.User;
+import com.example.aigc.exception.ForbiddenException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.service.RoleService;
 import com.example.aigc.service.UserRoleService;
@@ -99,10 +100,19 @@ public class UserController {
         return userService.updateUserStatus(id, status);
     }
 
-    @RequirePermission("user:update")
+    /**
+     * 本人改密走自助通道：只要登录且能提供原密码即可，不要求 user:update；
+     * 修改他人密码仍需 user:update，且目标账号必须与调用方同组织。
+     */
     @PutMapping("/{id}/password")
     public User updateUser(@PathVariable Integer id, @Valid @RequestBody UpdatePasswordRequest request) {
-        requireCurrentOrgUser(id);
+        Integer currentUserId = UserContextUtil.getCurrentUserId();
+        if (!currentUserId.equals(id)) {
+            if (!UserContextUtil.hasCurrentPermission("user:update")) {
+                throw new ForbiddenException("没有权限访问");
+            }
+            requireCurrentOrgUser(id);
+        }
         return userService.updateUserPassword(id, request.getOldPassword(), request.getPassword());
     }
 
