@@ -1,5 +1,6 @@
 package com.example.aigc.service;
 
+import com.example.aigc.constant.SystemConstant;
 import com.example.aigc.entity.Permission;
 import com.example.aigc.entity.RolePermission;
 import com.example.aigc.entity.UserRole;
@@ -129,6 +130,16 @@ public class PermissionService {
 
     public List<Permission> getAllPermissions() {
         return permissionRepository.findAllByOrderByPermissionCodeAsc();
+    }
+
+    /**
+     * 管理后台权限管理与角色授权只使用后端 RBAC 权限码；
+     * 创作者 feature 权限通过 /api/admin/user-permissions 单独维护。
+     */
+    public List<Permission> getAllBackendPermissions() {
+        return permissionRepository.findAllByOrderByPermissionCodeAsc().stream()
+                .filter(permission -> SystemConstant.isBackendPermissionCode(permission.getPermissionCode()))
+                .collect(Collectors.toList());
     }
 
     @Transactional

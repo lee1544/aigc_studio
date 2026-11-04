@@ -11,7 +11,7 @@
 1. [概述](#1-概述)
 2. [认证与会话](#2-认证与会话)
 3. [管理端：创作者账号](#3-管理端创作者账号)
-4. [功能权限（26 项 feature）](#4-功能权限26-项-feature)
+4. [功能权限（25 项 feature）](#4-功能权限25-项-feature)
 5. [组织管理](#5-组织管理)
 6. [角色与权限码](#6-角色与权限码)
 7. [模型连接与模型配置](#7-模型连接与模型配置)
@@ -253,7 +253,7 @@ Token 由登录/注册接口返回，载荷包含：
 { "email": "creator@example.com", "password": "secret123" }
 ```
 
-响应 `200`：`{ "token": "...", "user": ContractUserDto }`，`user.features` 为完整 26 项快照。
+响应 `200`：`{ "token": "...", "user": ContractUserDto }`，`user.features` 为完整 25 项快照。
 
 错误：`401` 邮箱或密码错误 / 非创作者账号 / 账号已被禁用或删除。
 
@@ -276,7 +276,7 @@ Token 由登录/注册接口返回，载荷包含：
 行为：
 
 - `allowRegistration=false` 时直接 `403 平台已关闭注册`，不写库。
-- 注册成功默认 **26 项 feature 全 false**；请求体不接收 `features`。
+- 注册成功默认 **25 项 feature 全 false**；请求体不接收 `features`。
 - `username` 自动设为 email，`orgId=0`，`accountSource=自助注册`。
 - 返回与登录相同的 `{token, user}`，可直接进入会话。
 
@@ -394,7 +394,7 @@ Token 由登录/注册接口返回，载荷包含：
 | `name` | string | 是 | ≤ 80 |
 | `email` | string | 是 | 合法邮箱，≤ 50，全局唯一；同时作为 `username` |
 | `password` | string | 是 | 6–256 |
-| `features` | object | 否 | 已知 26 项 feature 的布尔值；省略时全 false |
+| `features` | object | 否 | 已知 25 项 feature 的布尔值；省略时全 false |
 
 响应 `200`：`ContractUserDto`（`id`/`name`/`email`/`role`/`status`/`created_at`，不含密码、角色与 feature 明细）。
 
@@ -461,9 +461,11 @@ Token 由登录/注册接口返回，载荷包含：
 
 ---
 
-## 4. 功能权限（26 项 feature）
+## 4. 功能权限（25 项 feature）
 
 > 管理端接口均要求 `role=admin`；当前未挂 `@RequirePermission`，由管理端拦截器统一校验管理员身份。
+> 歌词识别（`lyricRecognition`）已随前端功能下线，不再出现在 feature 快照和写入校验中。
+> 管理后台的“权限管理”页与角色授权弹窗只展示后端 RBAC 权限码，不展示这些 feature；feature 仅通过本节接口按账号维护。
 
 ### 4.1 读取账号功能权限
 
@@ -482,7 +484,7 @@ Token 由登录/注册接口返回，载荷包含：
 | 字段 | 说明 |
 |---|---|
 | `id` | 创作者用户 ID |
-| `features` | 26 项布尔快照 |
+| `features` | 25 项布尔快照 |
 | `version` | 权限版本（`t_user.permission_version`），用于 `expectedVersions` 乐观锁 |
 
 错误：`404` 账号不存在；`400` 管理员账号不适用 feature 权限。
@@ -506,7 +508,7 @@ Token 由登录/注册接口返回，载荷包含：
 |---|---|---|---|
 | `userIds` | int[] | 是 | 1–500 个，正整数，不可重复 |
 | `mode` | string | 是 | `replace` / `grant` / `revoke` |
-| `features` | object | 否 | 已知 26 项 feature 布尔值 |
+| `features` | object | 否 | 已知 25 项 feature 布尔值 |
 | `expectedVersions` | object | `replace` 必填 | `{userId: 版本字符串}`，任意冲突整批 `409` 不写 |
 
 `mode` 语义：
@@ -736,6 +738,8 @@ Token 由登录/注册接口返回，载荷包含：
 
 响应 `200`：`Permission[]`，按 `permissionCode` 升序，包含启用与停用项。
 
+> 仅返回管理后台 RBAC 权限码（`user:*`、`org:*`、`role:*` 等）。创作者 feature 权限不在此列表返回，角色授权弹窗也不会展示，统一通过 [第 4 节](#4-功能权限25-项-feature)的账号权限接口维护。
+
 ### 6.9 启停权限码
 
 `PUT /api/permissions/{id}/status?status=1` · `role:update` + **仅超级管理员**
@@ -759,7 +763,7 @@ Token 由登录/注册接口返回，载荷包含：
 | `user:assign-role` / `user:reset-password` | 分配角色/重置密码 |
 | `org:view` / `org:create` / `org:update` / `org:delete` | 组织管理 |
 | `role:view` / `role:create` / `role:update` / `role:delete` / `role:assign-permission` | 角色管理 |
-| 26 项 feature 权限码 | 见 [16.1](#161-26-项-feature) |
+| 25 项 feature 权限码 | 见 [16.1](#161-25-项-feature) |
 
 ---
 
@@ -1719,7 +1723,7 @@ Authorization: Bearer <NODE_CONFIG_READ_TOKEN>
 | `status` | string | `active` / `disabled` / `deleted` |
 | `created_at` | string | ISO-8601 UTC |
 | `token_version` | int | 会话版本 |
-| `features` | object | 26 项 feature 快照 |
+| `features` | object | 25 项 feature 快照 |
 | `phone` | string | 手机号（如有） |
 | `username` | string | 管理员兼容字段 |
 | `realName` | string | 管理员兼容字段 |
@@ -1749,7 +1753,7 @@ Authorization: Bearer <NODE_CONFIG_READ_TOKEN>
 | `orgName` | string | 组织名称，未分配时为 null |
 | `roleIds` | int[] | 业务角色 ID（不含个人角色） |
 | `roleNames` | string[] | 业务角色名称 |
-| `features` | object | 26 项 feature 快照 |
+| `features` | object | 25 项 feature 快照 |
 
 ### 15.3 `Organization`
 
@@ -1826,7 +1830,7 @@ Authorization: Bearer <NODE_CONFIG_READ_TOKEN>
 
 ## 16. 附录
 
-### 16.1 26 项 feature
+### 16.1 25 项 feature
 
 | 顺序 | 权限码 | 中文名 |
 |---|---|---|
@@ -1844,18 +1848,17 @@ Authorization: Bearer <NODE_CONFIG_READ_TOKEN>
 | 12 | `video` | 视频生成 |
 | 13 | `voice` | 配音 |
 | 14 | `music` | 音乐 |
-| 15 | `lyricRecognition` | 歌词识别 |
-| 16 | `digital-human` | 数字人 |
-| 17 | `edit` | 本地剪辑 |
-| 18 | `3d` | 3D Studio |
-| 19 | `short-drama-agent` | 短剧 Agent |
-| 20 | `comic-agent` | 漫剧 Agent |
-| 21 | `canvas` | 画布 |
-| 22 | `director` | 本地 3D 导演台 |
-| 23 | `workflows` | 通用工作流 |
-| 24 | `transform` | 素材转换 |
-| 25 | `recreate` | 参考视频再创作 |
-| 26 | `files` | 我的生成文件 |
+| 15 | `digital-human` | 数字人 |
+| 16 | `edit` | 本地剪辑 |
+| 17 | `3d` | 3D Studio |
+| 18 | `short-drama-agent` | 短剧 Agent |
+| 19 | `comic-agent` | 漫剧 Agent |
+| 20 | `canvas` | 画布 |
+| 21 | `director` | 本地 3D 导演台 |
+| 22 | `workflows` | 通用工作流 |
+| 23 | `transform` | 素材转换 |
+| 24 | `recreate` | 参考视频再创作 |
+| 25 | `files` | 我的生成文件 |
 
 ### 16.2 调用示例
 
@@ -1916,3 +1919,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-04 | 修复 `POST /api/projects` 因 `module` 超过 `VARCHAR(16)` 触发的 500：V2 迁移加宽到 64，创建/切换模块前置校验长度；数据库数据类异常统一返回 400 |
 | 2026-11-04 | 请求体 DTO 化：`/api/admin/studio-skills`、`/api/projects`（创建/保存正文/切换模块）、`/api/admin/agent/*/config`、`/api/admin/workflows` 改用带 Bean Validation 的 DTO，超长/缺失字段返回字段级 400；工作流请求字段统一为 `remoteWorkflowId` |
 | 2026-11-04 | `PUT /api/users/{id}/password` 支持本人自助改密：本人不再要求 `user:update`，凭 `oldPassword` 校验即可；修改他人仍要求同组织 + `user:update` |
+| 2026-11-04 | 歌词识别功能下线：删除 `lyricRecognition` feature 权限码（V3 迁移清理权限行与角色关联），feature 快照由 26 项调整为 25 项；管理后台权限管理与角色授权仅展示后端 RBAC 权限码 |

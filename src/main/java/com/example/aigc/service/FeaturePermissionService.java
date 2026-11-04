@@ -36,10 +36,10 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * 创作者 26 项 feature 权限的读写服务。
+ * 创作者 25 项 feature 权限的读写服务。
  * <p>
  * 模型：每个 role='user' 账号拥有一个个人角色 USER_FEATURES_{userId}，其 t_role_permission
- * 记录该账号已授予的 feature 权限码。对外按契约返回 {features: 26 项布尔}。
+ * 记录该账号已授予的 feature 权限码。对外按契约返回 {features: 25 项布尔}。
  * 版本号取 t_user.permission_version（J03 起与会话 token_version 独立）；replace 必须 expectedVersions 匹配，任一冲突 409 整批不写。
  */
 @Service
@@ -56,14 +56,14 @@ public class FeaturePermissionService {
     @Autowired private UserSessionCache userSessionCache;
     @Autowired private ObjectMapper objectMapper;
 
-    /** 读取某账号完整 feature 快照（26 项布尔）。 */
+    /** 读取某账号完整 feature 快照（25 项布尔）。 */
     public Map<String, Boolean> getFeatures(Integer userId) {
         User user = requireCreator(userId);
         return loadFeatures(user);
     }
 
     /**
-     * 批量读取多个账号的 feature 快照（列表页用），key=userId，value=26 项布尔。
+     * 批量读取多个账号的 feature 快照（列表页用），key=userId，value=25 项布尔。
      * 无个人角色的账号按全 false 返回。
      */
     public Map<Integer, Map<String, Boolean>> getFeaturesBatch(List<Integer> userIds) {
@@ -141,7 +141,7 @@ public class FeaturePermissionService {
             }
         }
 
-        // 校验 features：仅已知 26 项，值为布尔
+        // 校验 features：仅已知 25 项，值为布尔
         Map<String, Boolean> patch = normalizeFeatures(req.getFeatures(), mode);
 
         // replace 必传 expectedVersions；批量预览提交也应传入
@@ -258,7 +258,7 @@ public class FeaturePermissionService {
             Role r = new Role();
             r.setRoleCode(code);
             r.setRoleName("个人功能权限 #" + userId);
-            r.setDescription("创作者 " + userId + " 的 26 项 feature 授权载体");
+            r.setDescription("创作者 " + userId + " 的 25 项 feature 授权载体");
             r.setOrgId(null);
             r.setStatus(1);
             r.setCreateTime(LocalDateTime.now());
@@ -294,7 +294,7 @@ public class FeaturePermissionService {
         return after;
     }
 
-    /** 规范化 features：仅已知 26 项，值必须为布尔。grant/revoke 只保留 true 键。 */
+    /** 规范化 features：仅已知 25 项，值必须为布尔。grant/revoke 只保留 true 键。 */
     private Map<String, Boolean> normalizeFeatures(Map<String, Boolean> raw, String mode) {
         Map<String, Boolean> out = new LinkedHashMap<>();
         if (raw == null) {

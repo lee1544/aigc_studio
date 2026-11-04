@@ -26,6 +26,6 @@ public class CreateUserContractRequest {
     @Size(min = 6, max = 256)
     private String password;
 
-    /** 省略时保存完整 false 权限；传入时仅接受已知 26 项 feature 布尔。 */
+    /** 省略时保存完整 false 权限；传入时仅接受已知 25 项 feature 布尔。 */
     private Map<String, Boolean> features;
 }

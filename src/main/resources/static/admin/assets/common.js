@@ -309,7 +309,6 @@
 
   var PERMISSION_SCOPES = [
     { key: 'system', label: '系统管理权限', hint: '账号、组织、角色与授权' },
-    { key: 'create', label: '功能访问权限', hint: '按账号开放功能，积分单独管理' },
     { key: 'other', label: '未归类权限', hint: '尚未纳入模块分组的新增权限' }
   ];
 
@@ -318,16 +317,7 @@
     { key: 'org', label: '组织管理', scope: 'system', prefixes: ['org'] },
     { key: 'role', label: '角色管理', scope: 'system', prefixes: ['role'] },
     { key: 'permission', label: '权限管理', scope: 'system', prefixes: ['permission'] },
-    { key: 'license', label: 'License 授权', scope: 'system', prefixes: ['license'] },
-    { key: 'text', label: '文本与故事', scope: 'create', codes: ['text-studio', 'script', 'storyboard', 'grid'] },
-    { key: 'image', label: '图片工作室', scope: 'create', codes: ['textToImage', 'imageToImage', 'imageEdit'] },
-    { key: 'video', label: '视频工作室', scope: 'create', codes: ['textToVideo', 'imageToVideo', 'firstLastFrameVideo'] },
-    { key: 'audio', label: '音频', scope: 'create', codes: ['voice', 'music', 'lyricRecognition'] },
-    { key: '3d', label: '3D', scope: 'create', codes: ['3d', 'director'] },
-    { key: 'agent', label: 'Agent 与画布', scope: 'create', codes: ['short-drama-agent', 'comic-agent', 'canvas', 'image', 'video'] },
-    { key: 'workflow', label: '工作流与素材处理', scope: 'create', codes: ['workflows', 'transform', 'recreate'] },
-    { key: 'digital-human', label: '数字人与剪辑', scope: 'create', codes: ['digital-human', 'edit'] },
-    { key: 'files', label: '个人文件', scope: 'create', codes: ['files'] }
+    { key: 'license', label: 'License 授权', scope: 'system', prefixes: ['license'] }
   ];
 
   var PERMISSION_MODULE_OTHER = { key: 'other', label: '未归类', scope: 'other' };

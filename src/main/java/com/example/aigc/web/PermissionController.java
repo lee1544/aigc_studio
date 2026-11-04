@@ -24,7 +24,7 @@ public class PermissionController {
     @RequirePermission("role:view")
     @GetMapping
     public List<Permission> getPermissions() {
-        return permissionService.getAllPermissions();
+        return permissionService.getAllBackendPermissions();
     }
 
     @RequirePermission("role:update")

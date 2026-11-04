@@ -52,6 +52,6 @@ public class AdminUserListItemDto {
     @JsonProperty("roleNames")
     private List<String> roleNames;
 
-    /** 26 项 feature 快照。 */
+    /** 25 项 feature 快照。 */
     private Map<String, Boolean> features;
 }

@@ -6,21 +6,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 账号功能权限（26 项布尔 feature）。
+ * 账号功能权限（25 项布尔 feature）。
  * <p>
  * 对应前端契约 account-feature-permissions.md 与 OpenAPI 的 PermissionPatch / Permissions schema。
  * 这些 feature 在 t_permission 中以 permissionCode 形式登记，并通过创作者的"个人角色"承载授权。
+ * 歌词识别（lyricRecognition）已由前端下线，不再作为创作者功能权限。
  */
 public final class FeaturePermissions {
 
     private FeaturePermissions() {}
 
-    /** 26 项 feature 标识，顺序与 OpenAPI PermissionPatch 一致。 */
+    /** 25 项 feature 标识，顺序与 OpenAPI PermissionPatch 一致。 */
     public static final List<String> CODES = Collections.unmodifiableList(java.util.Arrays.asList(
             "text-studio", "script", "storyboard", "grid",
             "textToImage", "imageToImage", "imageEdit", "image",
             "textToVideo", "imageToVideo", "firstLastFrameVideo", "video",
-            "voice", "music", "lyricRecognition", "digital-human",
+            "voice", "music", "digital-human",
             "edit", "3d", "short-drama-agent", "comic-agent",
             "canvas", "director", "workflows", "transform", "recreate", "files"
     ));
@@ -43,7 +44,6 @@ public final class FeaturePermissions {
         m.put("video", "视频生成");
         m.put("voice", "配音");
         m.put("music", "音乐");
-        m.put("lyricRecognition", "歌词识别");
         m.put("digital-human", "数字人");
         m.put("edit", "本地剪辑");
         m.put("3d", "3D Studio");
@@ -58,7 +58,7 @@ public final class FeaturePermissions {
         NAMES = Collections.unmodifiableMap(m);
     }
 
-    /** 个人角色编码前缀：每个创作者一个个人角色，承载其 26 项 feature 授权。 */
+    /** 个人角色编码前缀：每个创作者一个个人角色，承载其 25 项 feature 授权。 */
     public static final String PERSONAL_ROLE_PREFIX = "USER_FEATURES_";
 
     /** 创作者角色编码（role='user' 的账号自动绑定）。 */

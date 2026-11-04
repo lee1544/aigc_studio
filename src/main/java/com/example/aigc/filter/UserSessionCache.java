@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 用户会话信息缓存：tokenVersion、role、有效权限码（admin 权限码 + 26 项 feature）。
+ * 用户会话信息缓存：tokenVersion、role、有效权限码（admin 权限码 + 25 项 feature）。
  * <p>
  * filter 每次请求取用，tokenVersion 用于使旧 token 立即失效；权限变更/改密/禁用/登出时 evict。
  */
@@ -90,7 +90,7 @@ public class UserSessionCache {
         List<Integer> roleIds = userRoleService.getRoleIdsByUserId(userId);
         List<String> codes = permissionService.getPermissionCodesByRoleIds(roleIds);
 
-        // 角色权限码已包含个人 feature 角色下的 26 项 feature，去重后作为会话权限快照
+        // 角色权限码已包含个人 feature 角色下的 25 项 feature，去重后作为会话权限快照
         Set<String> merged = new LinkedHashSet<>(codes);
         return new SessionInfo(userId, user.getTokenVersion(), user.getRole(), new ArrayList<>(merged));
     }
@@ -126,7 +126,7 @@ public class UserSessionCache {
         return info != null && "admin".equals(info.role);
     }
 
-    /** 列出当前会话的 26 项 feature 快照（布尔）。 */
+    /** 列出当前会话的 25 项 feature 快照（布尔）。 */
     public static java.util.Map<String, Boolean> featureSnapshot(SessionInfo info) {
         java.util.Map<String, Boolean> snap = FeaturePermissions.allFalse();
         if (info != null) {

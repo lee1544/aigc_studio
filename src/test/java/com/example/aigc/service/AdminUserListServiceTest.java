@@ -107,7 +107,7 @@ class AdminUserListServiceTest {
         assertTrue(dto.getRoleNames().isEmpty());
         // orgId=0 视为未分配组织
         assertNull(dto.getOrgName());
-        assertEquals(26, dto.getFeatures().size());
+        assertEquals(25, dto.getFeatures().size());
     }
 
     private User creator(Integer id, Integer orgId) {
