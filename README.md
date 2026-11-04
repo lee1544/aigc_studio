@@ -108,6 +108,8 @@ java -jar aigc-studio.jar --spring.profiles.active=prod
 
 ## 主要 API（Java 归属）
 
+> 完整接口文档（请求/响应字段、错误码、分页、权限模型、Node 占位路由）见 [`docs/API.md`](docs/API.md)。
+
 认证（免 JWT）：`POST /api/admin/login`、`POST /api/auth/login`、`POST /api/auth/register`
 
 | 模块 | 路径 | 所需权限 |
@@ -128,7 +130,7 @@ java -jar aigc-studio.jar --spring.profiles.active=prod
 
 > 积分/计费/生成/执行/任务/文件/模型目录等 Node 归属路由在 Java 侧统一返回 503，不在上表。完整 128 路由清单见 `static/docs/backend-handoff/route-index.md`。
 
-统一响应体：`{code, message, data, timestamp}`；分页封装见 `dto/PageResponse`。财务/权限/模型配置响应头 `Cache-Control: no-store`。
+成功响应通常直接返回业务 JSON；失败统一为 `{code, message, data, timestamp}`。分页封装见 `dto/PageResponse`。财务/权限/模型配置响应头 `Cache-Control: no-store`。
 
 分页：`GET /api/projects` 与 `GET /api/admin/workflows` 支持可选 `page` / `size`。不传时保持原数组响应；传入时返回 Spring `Page` 结构（`content/totalElements/totalPages/...`），`size` 上限分别为 200 / 100。
 
