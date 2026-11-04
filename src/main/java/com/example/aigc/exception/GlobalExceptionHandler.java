@@ -174,6 +174,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Object>> handleDatabaseException(Exception e, HttpServletRequest request) {
         String hint = SchemaDiagnostics.hint(e);
         if (hint == null) {
+            String root = SchemaDiagnostics.rootMessage(e);
+            // 字段超长/字符集不支持属于请求数据问题，不应回 500；具体字段由业务层提前校验。
+            if (isClientDataProblem(root)) {
+                logger.warn("数据库数据异常 - {}: {}", request.getRequestURI(), root);
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse<>(400, "提交的数据长度或格式超出数据库限制"));
+            }
             logger.error("数据库访问异常 - {}: {}", request.getRequestURI(), e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResponse<>(500, "服务器内部错误"));
@@ -182,6 +189,17 @@ public class GlobalExceptionHandler {
                 request.getRequestURI(), hint, SchemaDiagnostics.rootMessage(e), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiResponse<>(500, hint));
+    }
+
+    private static boolean isClientDataProblem(String message) {
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        return lower.contains("data too long")
+                || lower.contains("data truncation")
+                || lower.contains("incorrect string value")
+                || lower.contains("out of range");
     }
 
     /** 兜底：原始异常信息只进日志，不回显给调用方（避免泄漏内部实现与数据）。 */

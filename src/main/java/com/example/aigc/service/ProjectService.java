@@ -25,6 +25,12 @@ import java.util.Map;
 @Service
 public class ProjectService {
 
+    /** 与 projects 表列长度保持一致，避免超长值落到数据库才报 DataException。 */
+    private static final int MAX_TITLE = 100;
+    private static final int MAX_TYPE = 32;
+    private static final int MAX_STYLE = 32;
+    private static final int MAX_MODULE = 64;
+
     @Autowired private ProjectRepository projectRepository;
     @Autowired private ProjectContentRepository contentRepository;
     @Autowired private ObjectMapper objectMapper;
@@ -42,13 +48,13 @@ public class ProjectService {
     public Project create(Integer userId, Map<String, Object> body) {
         Project p = new Project();
         p.setUserId(userId);
-        p.setTitle(text(body, "title"));
-        p.setType(text(body, "type"));
-        p.setStyle(text(body, "style"));
+        p.setTitle(checked("title", text(body, "title"), MAX_TITLE));
+        p.setType(checked("type", text(body, "type"), MAX_TYPE));
+        p.setStyle(checked("style", text(body, "style"), MAX_STYLE));
         Object dur = body.get("duration");
         if (dur != null) p.setDuration(toInt(dur));
         p.setStatus("draft");
-        p.setModule(textOrDefault(body, "module", "script"));
+        p.setModule(checked("module", textOrDefault(body, "module", "script"), MAX_MODULE));
         p.setUpdatedAt(LocalDateTime.now());
         p = projectRepository.save(p);
         // 初始化空正文
@@ -110,6 +116,7 @@ public class ProjectService {
         if (module == null || module.isEmpty()) {
             throw new BusinessException("module 不能为空");
         }
+        module = checked("module", module, MAX_MODULE);
         Project p = requireOwned(userId, id);
         p.setModule(module);
         p.setUpdatedAt(LocalDateTime.now());
@@ -150,6 +157,14 @@ public class ProjectService {
     private String textOrDefault(Map<String, Object> body, String key, String def) {
         String v = text(body, key);
         return v == null || v.isEmpty() ? def : v;
+    }
+
+    /** 超长直接 400，避免把 Data too long 泄漏成 500。 */
+    private String checked(String field, String value, int max) {
+        if (value != null && value.length() > max) {
+            throw new BusinessException(field + " 长度不能超过 " + max + " 个字符");
+        }
+        return value;
     }
 
     private Integer toInt(Object v) {

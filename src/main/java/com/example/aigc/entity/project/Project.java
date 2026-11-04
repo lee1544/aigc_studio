@@ -38,6 +38,6 @@ public class Project implements Serializable {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
 
-    @Column(nullable = false, length = 16)
+    @Column(nullable = false, length = 64)
     private String module = "script";
 }

@@ -1331,7 +1331,9 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 | `type` | string | 否 | ≤ 32 |
 | `style` | string | 否 | ≤ 32 |
 | `duration` | int | 否 | 无法解析时忽略 |
-| `module` | string | 否 | 缺省 `script`，≤ 16 |
+| `module` | string | 否 | 缺省 `script`，≤ 64；可直接使用 feature 编码（如 `short-drama-agent`） |
+
+> 超长字段返回 `400`（如 `title 长度不能超过 100 个字符`），不会落到数据库再报 500。
 
 行为：`status` 固定为 `draft`，并初始化空正文（`script=""`、`scenes=[]`、`media={}`）。
 
@@ -1389,7 +1391,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 { "module": "storyboard" }
 ```
 
-响应 `200`：更新后的 `Project`；`module` 为空返回 `400`。
+响应 `200`：更新后的 `Project`；`module` 为空或超过 64 个字符返回 `400`。
 
 ### 11.6 删除项目
 
@@ -1778,7 +1780,7 @@ Authorization: Bearer <NODE_CONFIG_READ_TOKEN>
 | `duration` | int | 时长 |
 | `status` | string | 固定 `draft` |
 | `updatedAt` | string | 更新时间 |
-| `module` | string | 当前模块，默认 `script` |
+| `module` | string | 当前模块，默认 `script`，最长 64 字符 |
 
 `userId` 为内部字段，不返回。
 
@@ -1894,3 +1896,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 |---|---|
 | 2026-11-04 | 首版：覆盖 Java 归属全部接口、权限模型、分页/错误约定、Node 占位路由与 feature/适配器附录 |
 | 2026-11-04 | `PUT /api/users/{id}/password` 改为必须提供 `oldPassword` 并通过 BCrypt 校验，失败返回 400 且不撤销会话 |
+| 2026-11-04 | 修复 `POST /api/projects` 因 `module` 超过 `VARCHAR(16)` 触发的 500：V2 迁移加宽到 64，创建/切换模块前置校验长度；数据库数据类异常统一返回 400 |
