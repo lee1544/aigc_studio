@@ -172,11 +172,16 @@ public class UserService {
     }
 
     @Transactional
-    public User updateUserPassword(Integer userId, String password) {
+    public User updateUserPassword(Integer userId, String oldPassword, String newPassword) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("用户不存在"));
 
-        user.setPassword(passwordEncoder.encode(password));
+        // 必须先校验原密码，避免会话被盗后直接覆盖密码
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+            throw new BusinessException("原密码不正确");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
         // 改密后旧 token 必须立即失效
         user.setTokenVersion(user.getTokenVersion() + 1);
         user.setUpdateTime(LocalDateTime.now());

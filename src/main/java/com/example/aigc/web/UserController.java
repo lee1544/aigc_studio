@@ -103,7 +103,7 @@ public class UserController {
     @PutMapping("/{id}/password")
     public User updateUser(@PathVariable Integer id, @Valid @RequestBody UpdatePasswordRequest request) {
         requireCurrentOrgUser(id);
-        return userService.updateUserPassword(id, request.getPassword());
+        return userService.updateUserPassword(id, request.getOldPassword(), request.getPassword());
     }
 
     @RequirePermission("user:reset-password")

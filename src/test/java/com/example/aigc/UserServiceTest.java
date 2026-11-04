@@ -234,10 +234,11 @@ class UserServiceTest {
     @Test
     void testUpdateUserPassword_Success() {
         when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("oldPassword", "encodedPassword")).thenReturn(true);
         when(passwordEncoder.encode("newPassword")).thenReturn("newEncodedPassword");
         when(userRepository.save(any(User.class))).thenReturn(testUser);
 
-        User result = userService.updateUserPassword(1, "newPassword");
+        User result = userService.updateUserPassword(1, "oldPassword", "newPassword");
 
         assertNotNull(result);
         assertEquals(1, result.getTokenVersion());
@@ -246,11 +247,25 @@ class UserServiceTest {
     }
 
     @Test
+    void testUpdateUserPassword_WrongOldPassword() {
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("wrongPassword", "encodedPassword")).thenReturn(false);
+
+        BusinessException ex = assertThrows(BusinessException.class, () ->
+                userService.updateUserPassword(1, "wrongPassword", "newPassword"));
+
+        assertEquals("原密码不正确", ex.getMessage());
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(userRepository, never()).save(any());
+        verify(userSessionCache, never()).evict(anyInt());
+    }
+
+    @Test
     void testUpdateUserPassword_NotFound() {
         when(userRepository.findById(999)).thenReturn(Optional.empty());
 
         assertThrows(NotFoundException.class, () ->
-                userService.updateUserPassword(999, "newPassword"));
+                userService.updateUserPassword(999, "oldPassword", "newPassword"));
 
         verify(userRepository, never()).save(any());
     }
