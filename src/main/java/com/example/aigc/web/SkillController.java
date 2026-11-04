@@ -1,12 +1,14 @@
 package com.example.aigc.web;
 
+import com.example.aigc.dto.contract.StudioSkillCreateRequest;
+import com.example.aigc.dto.contract.StudioSkillUpdateRequest;
 import com.example.aigc.entity.ops.StudioSkill;
 import com.example.aigc.service.StudioSkillService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
 import java.util.List;
-import java.util.Map;
 
 /** Skill 管理 /api/admin/studio-skills 与公开 /api/studio-skills。 */
 @RestController
@@ -26,13 +28,13 @@ public class SkillController {
     }
 
     @PostMapping("/api/admin/studio-skills")
-    public StudioSkill create(@RequestBody Map<String, Object> body) {
-        return studioSkillService.create(body);
+    public StudioSkill create(@Valid @RequestBody StudioSkillCreateRequest request) {
+        return studioSkillService.create(request);
     }
 
     @PutMapping("/api/admin/studio-skills/{id}")
-    public StudioSkill update(@PathVariable String id, @RequestBody Map<String, Object> body) {
-        return studioSkillService.update(id, body);
+    public StudioSkill update(@PathVariable String id, @Valid @RequestBody StudioSkillUpdateRequest request) {
+        return studioSkillService.update(id, request);
     }
 
     @DeleteMapping("/api/admin/studio-skills/{id}")

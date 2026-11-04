@@ -1,11 +1,15 @@
 package com.example.aigc.web;
 
+import com.example.aigc.dto.contract.ProjectContentRequest;
+import com.example.aigc.dto.contract.ProjectCreateRequest;
+import com.example.aigc.dto.contract.ProjectModuleRequest;
 import com.example.aigc.entity.project.Project;
 import com.example.aigc.service.ProjectService;
 import com.example.aigc.utils.UserContextUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
 import java.util.Map;
 
 /**
@@ -32,8 +36,8 @@ public class ProjectController {
     }
 
     @PostMapping
-    public Project create(@RequestBody Map<String, Object> body) {
-        return projectService.create(UserContextUtil.getCurrentUserId(), body);
+    public Project create(@Valid @RequestBody ProjectCreateRequest request) {
+        return projectService.create(UserContextUtil.getCurrentUserId(), request);
     }
 
     @GetMapping("/{id}/content")
@@ -42,14 +46,15 @@ public class ProjectController {
     }
 
     @PutMapping("/{id}/content")
-    public Map<String, Object> saveContent(@PathVariable Integer id, @RequestBody Map<String, Object> body) {
-        return projectService.saveContent(UserContextUtil.getCurrentUserId(), id, body);
+    public Map<String, Object> saveContent(@PathVariable Integer id,
+                                           @RequestBody ProjectContentRequest request) {
+        return projectService.saveContent(UserContextUtil.getCurrentUserId(), id, request);
     }
 
     @PatchMapping("/{id}/module")
-    public Project patchModule(@PathVariable Integer id, @RequestBody Map<String, Object> body) {
-        return projectService.patchModule(UserContextUtil.getCurrentUserId(), id,
-                body.get("module") == null ? null : String.valueOf(body.get("module")));
+    public Project patchModule(@PathVariable Integer id,
+                               @Valid @RequestBody ProjectModuleRequest request) {
+        return projectService.patchModule(UserContextUtil.getCurrentUserId(), id, request.getModule());
     }
 
     @DeleteMapping("/{id}")

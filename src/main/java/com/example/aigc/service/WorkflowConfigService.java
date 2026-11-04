@@ -1,9 +1,11 @@
 package com.example.aigc.service;
 
+import com.example.aigc.dto.contract.WorkflowWriteRequest;
 import com.example.aigc.entity.config.ComfyWorkflow;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.repository.ComfyWorkflowRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -44,10 +46,10 @@ public class WorkflowConfigService {
     }
 
     @Transactional
-    public Map<String, Object> create(Map<String, Object> body) {
+    public Map<String, Object> create(WorkflowWriteRequest request) {
         ComfyWorkflow w = new ComfyWorkflow();
         w.setId(UUID.randomUUID().toString().replace("-", ""));
-        applyBody(w, body, true);
+        applyBody(w, request, true);
         w.setCreatedAt(LocalDateTime.now());
         w.setUpdatedAt(LocalDateTime.now());
         repository.save(w);
@@ -56,10 +58,10 @@ public class WorkflowConfigService {
     }
 
     @Transactional
-    public Map<String, Object> update(String id, Map<String, Object> body) {
+    public Map<String, Object> update(String id, WorkflowWriteRequest request) {
         ComfyWorkflow w = repository.findById(id)
                 .orElseThrow(() -> new NotFoundException("工作流不存在"));
-        applyBody(w, body, false);
+        applyBody(w, request, false);
         w.setUpdatedAt(LocalDateTime.now());
         repository.save(w);
         configVersionService.bump();
@@ -101,32 +103,27 @@ public class WorkflowConfigService {
         return m;
     }
 
-    private void applyBody(ComfyWorkflow w, Map<String, Object> body, boolean isCreate) {
-        if (body.get("name") != null) w.setName(String.valueOf(body.get("name")));
-        if (body.get("description") != null) w.setDescription(String.valueOf(body.get("description")));
-        if (body.get("baseUrl") != null) w.setBaseUrl(String.valueOf(body.get("baseUrl")));
-        if (body.get("provider") != null) w.setProvider(String.valueOf(body.get("provider")));
-        if (body.get("purpose") != null) w.setPurpose(String.valueOf(body.get("purpose")));
-        if (body.get("remoteWorkflowId") != null) w.setRemoteWorkflowId(String.valueOf(body.get("remoteWorkflowId")));
-        if (body.get("promptNode") != null) w.setPromptNode(String.valueOf(body.get("promptNode")));
-        if (body.get("promptInput") != null) w.setPromptInput(String.valueOf(body.get("promptInput")));
-        if (body.get("graph") != null) {
-            Object g = body.get("graph");
-            w.setGraph(g instanceof String ? (String) g : toJson(g));
+    private void applyBody(ComfyWorkflow w, WorkflowWriteRequest request, boolean isCreate) {
+        if (request.getName() != null) w.setName(request.getName());
+        if (request.getDescription() != null) w.setDescription(request.getDescription());
+        if (request.getBaseUrl() != null) w.setBaseUrl(request.getBaseUrl());
+        if (request.getProvider() != null) w.setProvider(request.getProvider());
+        if (request.getPurpose() != null) w.setPurpose(request.getPurpose());
+        if (request.getRemoteWorkflowId() != null) w.setRemoteWorkflowId(request.getRemoteWorkflowId());
+        if (request.getPromptNode() != null) w.setPromptNode(request.getPromptNode());
+        if (request.getPromptInput() != null) w.setPromptInput(request.getPromptInput());
+        if (request.getGraph() != null && !request.getGraph().isNull()) {
+            w.setGraph(jsonValue(request.getGraph()));
         }
-        if (body.get("mediaBindings") != null) {
-            Object mb = body.get("mediaBindings");
-            w.setMediaBindings(mb instanceof String ? (String) mb : toJson(mb));
+        if (request.getMediaBindings() != null && !request.getMediaBindings().isNull()) {
+            w.setMediaBindings(jsonValue(request.getMediaBindings()));
         }
         // apiKey：空串沿用旧值（更新时），创建时允许空
-        if (body.get("apiKey") != null) {
-            String k = String.valueOf(body.get("apiKey"));
-            if (!k.isEmpty()) {
-                w.setApiKey(k);
-            }
+        if (request.getApiKey() != null && !request.getApiKey().isEmpty()) {
+            w.setApiKey(request.getApiKey());
         }
-        if (body.get("enabled") != null) {
-            w.setEnabled(Boolean.TRUE.equals(body.get("enabled")) ? 1 : 0);
+        if (request.getEnabled() != null) {
+            w.setEnabled(request.getEnabled() ? 1 : 0);
         }
         if (isCreate) {
             requireNonEmpty(w.getName(), "name");
@@ -159,8 +156,9 @@ public class WorkflowConfigService {
         catch (Exception e) { return json; }
     }
 
-    private String toJson(Object o) {
-        try { return objectMapper.writeValueAsString(o); } catch (Exception e) { return "{}"; }
+    /** 字符串按原样保存；对象/数组序列化为 JSON 文本。 */
+    private String jsonValue(JsonNode node) {
+        return node.isTextual() ? node.asText() : node.toString();
     }
 
     private void requireNonEmpty(String v, String field) {

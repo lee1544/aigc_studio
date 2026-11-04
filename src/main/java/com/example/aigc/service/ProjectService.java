@@ -1,11 +1,14 @@
 package com.example.aigc.service;
 
+import com.example.aigc.dto.contract.ProjectContentRequest;
+import com.example.aigc.dto.contract.ProjectCreateRequest;
 import com.example.aigc.entity.project.Project;
 import com.example.aigc.entity.project.ProjectContent;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.repository.ProjectContentRepository;
 import com.example.aigc.repository.ProjectRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -45,16 +48,16 @@ public class ProjectService {
     }
 
     @Transactional
-    public Project create(Integer userId, Map<String, Object> body) {
+    public Project create(Integer userId, ProjectCreateRequest request) {
         Project p = new Project();
         p.setUserId(userId);
-        p.setTitle(checked("title", text(body, "title"), MAX_TITLE));
-        p.setType(checked("type", text(body, "type"), MAX_TYPE));
-        p.setStyle(checked("style", text(body, "style"), MAX_STYLE));
-        Object dur = body.get("duration");
-        if (dur != null) p.setDuration(toInt(dur));
+        p.setTitle(checked("title", request.getTitle(), MAX_TITLE));
+        p.setType(checked("type", request.getType(), MAX_TYPE));
+        p.setStyle(checked("style", request.getStyle(), MAX_STYLE));
+        p.setDuration(request.getDuration());
         p.setStatus("draft");
-        p.setModule(checked("module", textOrDefault(body, "module", "script"), MAX_MODULE));
+        String module = request.getModule();
+        p.setModule(checked("module", module == null || module.isEmpty() ? "script" : module, MAX_MODULE));
         p.setUpdatedAt(LocalDateTime.now());
         p = projectRepository.save(p);
         // 初始化空正文
@@ -91,7 +94,7 @@ public class ProjectService {
     }
 
     @Transactional
-    public Map<String, Object> saveContent(Integer userId, Integer id, Map<String, Object> body) {
+    public Map<String, Object> saveContent(Integer userId, Integer id, ProjectContentRequest request) {
         Project p = requireOwned(userId, id);
         ProjectContent c = contentRepository.findById(id).orElseGet(() -> {
             ProjectContent fresh = new ProjectContent();
@@ -99,11 +102,9 @@ public class ProjectService {
             return fresh;
         });
         c.setProjectId(id);
-        c.setScript(textOrDefault(body, "script", ""));
-        Object scenes = body.get("scenes");
-        c.setScenes(scenes == null ? "[]" : (scenes instanceof String ? (String) scenes : toJson(scenes)));
-        Object media = body.get("media");
-        c.setMedia(media == null ? "{}" : (media instanceof String ? (String) media : toJson(media)));
+        c.setScript(request.getScript() == null ? "" : request.getScript());
+        c.setScenes(jsonValue(request.getScenes(), "[]"));
+        c.setMedia(jsonValue(request.getMedia(), "{}"));
         c.setUpdatedAt(LocalDateTime.now());
         contentRepository.save(c);
         p.setUpdatedAt(LocalDateTime.now());
@@ -145,18 +146,10 @@ public class ProjectService {
         catch (Exception e) { return json; }
     }
 
-    private String toJson(Object o) {
-        try { return objectMapper.writeValueAsString(o); } catch (Exception e) { return "{}"; }
-    }
-
-    private String text(Map<String, Object> body, String key) {
-        Object v = body.get(key);
-        return v == null ? null : String.valueOf(v);
-    }
-
-    private String textOrDefault(Map<String, Object> body, String key, String def) {
-        String v = text(body, key);
-        return v == null || v.isEmpty() ? def : v;
+    /** 字符串按原样保存；对象/数组序列化为 JSON 文本；缺省值用于 null。 */
+    private String jsonValue(JsonNode node, String defaultValue) {
+        if (node == null || node.isNull()) return defaultValue;
+        return node.isTextual() ? node.asText() : node.toString();
     }
 
     /** 超长直接 400，避免把 Data too long 泄漏成 500。 */
@@ -165,9 +158,5 @@ public class ProjectService {
             throw new BusinessException(field + " 长度不能超过 " + max + " 个字符");
         }
         return value;
-    }
-
-    private Integer toInt(Object v) {
-        try { return Integer.parseInt(String.valueOf(v)); } catch (Exception e) { return null; }
     }
 }

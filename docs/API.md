@@ -89,6 +89,8 @@ Token 由登录/注册接口返回，载荷包含：
 | `data` | any | 可选，参数校验错误时为 `{字段: 错误}` |
 | `timestamp` | long | 服务器毫秒时间戳 |
 
+请求体统一使用 DTO + Bean Validation 校验。字段缺失、类型错误或超长时返回 `400`：类型/JSON 语法错误为 `message="请求体格式错误"`，约束不满足为 `message="参数验证失败"` 且 `data` 给出字段级错误。
+
 少数接口返回 `ApiResponse` 作为成功体，例如删除组织返回 `{"code":200,"message":"组织已成功删除","timestamp":...}`。
 
 ### 1.4 分页
@@ -1052,7 +1054,10 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 约束：
 
 - `systemPrompt` 最长 20000 字符；只传 `systemPrompt` 时不改模型选择。
+- `models` 为 `step -> model` 映射，值最长 128 字符；只更新已知 step。
+- canvas 的 `model` 最长 128 字符。
 - 未知 `agent` 返回 `400`；未知 step 会被忽略。
+- 字段超长返回 `400`，响应 `data` 中给出字段级错误（如 `{"systemPrompt":"systemPrompt 最多 20000 字符"}`）。
 - 保存后递增配置版本号并返回最新配置。
 
 ---
@@ -1105,7 +1110,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
   "description": "可选",
   "provider": "comfyui",
   "baseUrl": "http://comfy:8188",
-  "workflowId": "remote-123",
+  "remoteWorkflowId": "remote-123",
   "purpose": "general",
   "promptNode": "6",
   "promptInput": "text",
@@ -1118,17 +1123,22 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `name` | 是 | 非空 |
-| `baseUrl` | 是 | 非空 |
+| `name` | 是 | 非空，≤ 100 |
+| `baseUrl` | 是 | 非空，≤ 255 |
+| `provider` | 否 | ≤ 32，缺省 `comfyui` |
+| `purpose` | 否 | ≤ 32，缺省 `general` |
+| `remoteWorkflowId` | 否 | ≤ 64；响应中字段名为 `workflowId` |
+| `promptNode` | 否 | ≤ 64，缺省空串 |
+| `promptInput` | 否 | ≤ 64，缺省 `text` |
 | `graph` | 否 | 对象或 JSON 字符串；缺省 `{}` |
-| `promptNode` | 否 | 缺省空串 |
-| `apiKey` | 否 | 空串不保存 |
+| `mediaBindings` | 否 | 对象或 JSON 字符串；缺省 `{}` |
+| `apiKey` | 否 | ≤ 8192；空串不保存 |
 | `enabled` | 否 | 仅 `true` 启用 |
-| 其他 | 否 | `description/provider/workflowId/purpose/promptInput/mediaBindings` 原样保存 |
+| `description` | 否 | 原样保存 |
 
 响应 `200`：工作流视图（同列表元素）。
 
-错误：`400` name/baseUrl 为空。
+错误：`400` name/baseUrl 为空；字段超长返回 `400`，`data` 中给出字段级错误。
 
 ### 9.3 更新工作流
 
@@ -1137,6 +1147,8 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 请求字段同创建，未传字段沿用；`apiKey` 空串沿用旧值。
 
 响应 `200`：工作流视图。
+
+错误：`404` 工作流不存在；字段超长返回 `400`。
 
 ### 9.4 停用工作流
 
@@ -1269,12 +1281,14 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `name` | 是 | 非空 |
+| `name` | 是 | 非空，≤ 100 |
 | `description` | 否 | 默认空串 |
 | `content` | 否 | 默认空串 |
 | `enabled` | 否 | 仅 `true` 启用，缺省启用 |
 
 响应 `200`：`StudioSkill`。
+
+错误：`400` name 为空或超过 100 字符。
 
 ### 10.7 更新 Skill
 
@@ -1283,6 +1297,8 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 请求字段同创建，未传沿用。
 
 响应 `200`：`StudioSkill`。
+
+错误：`404` Skill 不存在；`name` 传入空白或超过 100 字符返回 `400`。
 
 ### 10.8 删除 Skill
 
@@ -1330,7 +1346,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 | `title` | string | 否 | ≤ 100 |
 | `type` | string | 否 | ≤ 32 |
 | `style` | string | 否 | ≤ 32 |
-| `duration` | int | 否 | 无法解析时忽略 |
+| `duration` | int | 否 | 整数；类型错误返回 `400` |
 | `module` | string | 否 | 缺省 `script`，≤ 64；可直接使用 feature 编码（如 `short-drama-agent`） |
 
 > 超长字段返回 `400`（如 `title 长度不能超过 100 个字符`），不会落到数据库再报 500。
@@ -1897,3 +1913,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-04 | 首版：覆盖 Java 归属全部接口、权限模型、分页/错误约定、Node 占位路由与 feature/适配器附录 |
 | 2026-11-04 | `PUT /api/users/{id}/password` 改为必须提供 `oldPassword` 并通过 BCrypt 校验，失败返回 400 且不撤销会话 |
 | 2026-11-04 | 修复 `POST /api/projects` 因 `module` 超过 `VARCHAR(16)` 触发的 500：V2 迁移加宽到 64，创建/切换模块前置校验长度；数据库数据类异常统一返回 400 |
+| 2026-11-04 | 请求体 DTO 化：`/api/admin/studio-skills`、`/api/projects`（创建/保存正文/切换模块）、`/api/admin/agent/*/config`、`/api/admin/workflows` 改用带 Bean Validation 的 DTO，超长/缺失字段返回字段级 400；工作流请求字段统一为 `remoteWorkflowId` |

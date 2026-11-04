@@ -1,5 +1,6 @@
 package com.example.aigc.service;
 
+import com.example.aigc.dto.contract.AgentConfigRequest;
 import com.example.aigc.entity.config.AgentStepModel;
 import com.example.aigc.entity.config.AgentSystemPrompt;
 import com.example.aigc.exception.BusinessException;
@@ -36,13 +37,13 @@ public class AgentConfigService {
     @Autowired private ConfigVersionService configVersionService;
 
     @Transactional
-    public Map<String, Object> save(String agent, Map<String, Object> body) {
+    public Map<String, Object> save(String agent, AgentConfigRequest request) {
         List<String> steps = stepsOf(agent);
         if (steps == null) {
             throw new BusinessException("未知 agent: " + agent);
         }
         // systemPrompt
-        String prompt = body.get("systemPrompt") == null ? null : String.valueOf(body.get("systemPrompt")).trim();
+        String prompt = request.getSystemPrompt() == null ? null : request.getSystemPrompt().trim();
         if (prompt != null) {
             if (prompt.length() > MAX_PROMPT) {
                 throw new BusinessException("systemPrompt 最多 " + MAX_PROMPT + " 字符");
@@ -54,16 +55,15 @@ public class AgentConfigService {
         }
         // models / model
         if (CANVAS.equals(agent)) {
-            String model = body.get("model") == null ? null : String.valueOf(body.get("model"));
+            String model = request.getModel();
             if (model != null) saveStep(agent, "model", model);
         } else {
-            Object modelsObj = body.get("models");
-            if (modelsObj instanceof Map) {
-                Map<?, ?> models = (Map<?, ?>) modelsObj;
+            Map<String, String> models = request.getModels();
+            if (models != null) {
                 for (String step : steps) {
-                    Object v = models.get(step);
+                    String v = models.get(step);
                     if (v != null) {
-                        saveStep(agent, step, String.valueOf(v));
+                        saveStep(agent, step, v);
                     }
                 }
             }

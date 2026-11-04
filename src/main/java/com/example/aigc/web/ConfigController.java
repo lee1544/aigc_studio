@@ -1,10 +1,13 @@
 package com.example.aigc.web;
 
+import com.example.aigc.dto.contract.AgentConfigRequest;
+import com.example.aigc.dto.contract.WorkflowWriteRequest;
 import com.example.aigc.service.AgentConfigService;
 import com.example.aigc.service.WorkflowConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
 import java.util.Map;
 
 /**
@@ -39,18 +42,18 @@ public class ConfigController {
     }
 
     @PutMapping("/api/admin/agent/short-drama/config")
-    public Map<String, Object> saveShortDrama(@RequestBody Map<String, Object> body) {
-        return agentConfigService.save(AgentConfigService.SHORT_DRAMA, body);
+    public Map<String, Object> saveShortDrama(@Valid @RequestBody AgentConfigRequest request) {
+        return agentConfigService.save(AgentConfigService.SHORT_DRAMA, request);
     }
 
     @PutMapping("/api/admin/agent/comic/config")
-    public Map<String, Object> saveComic(@RequestBody Map<String, Object> body) {
-        return agentConfigService.save(AgentConfigService.COMIC, body);
+    public Map<String, Object> saveComic(@Valid @RequestBody AgentConfigRequest request) {
+        return agentConfigService.save(AgentConfigService.COMIC, request);
     }
 
     @PutMapping("/api/admin/agent/canvas/config")
-    public Map<String, Object> saveCanvas(@RequestBody Map<String, Object> body) {
-        return agentConfigService.save(AgentConfigService.CANVAS, body);
+    public Map<String, Object> saveCanvas(@Valid @RequestBody AgentConfigRequest request) {
+        return agentConfigService.save(AgentConfigService.CANVAS, request);
     }
 
     // ---------- admin 工作流 CRUD（J06）----------
@@ -68,13 +71,14 @@ public class ConfigController {
     }
 
     @PostMapping("/api/admin/workflows")
-    public Map<String, Object> createWorkflow(@RequestBody Map<String, Object> body) {
-        return workflowConfigService.create(body);
+    public Map<String, Object> createWorkflow(@Valid @RequestBody WorkflowWriteRequest request) {
+        return workflowConfigService.create(request);
     }
 
     @PutMapping("/api/admin/workflows/{id}")
-    public Map<String, Object> updateWorkflow(@PathVariable String id, @RequestBody Map<String, Object> body) {
-        return workflowConfigService.update(id, body);
+    public Map<String, Object> updateWorkflow(@PathVariable String id,
+                                              @Valid @RequestBody WorkflowWriteRequest request) {
+        return workflowConfigService.update(id, request);
     }
 
     @DeleteMapping("/api/admin/workflows/{id}")

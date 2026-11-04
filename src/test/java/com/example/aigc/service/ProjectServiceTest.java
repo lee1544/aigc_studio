@@ -1,18 +1,20 @@
 package com.example.aigc.service;
 
+import com.example.aigc.dto.contract.ProjectContentRequest;
+import com.example.aigc.dto.contract.ProjectCreateRequest;
 import com.example.aigc.entity.project.Project;
 import com.example.aigc.entity.project.ProjectContent;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.repository.ProjectContentRepository;
 import com.example.aigc.repository.ProjectRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -38,27 +40,39 @@ class ProjectServiceTest {
 
     @Test
     void createAllowsFeatureCodeAsModule() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("title", "短剧");
-        body.put("module", "short-drama-agent");
+        ProjectCreateRequest request = new ProjectCreateRequest();
+        request.setTitle("短剧");
+        request.setModule("short-drama-agent");
         when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
             Project p = invocation.getArgument(0);
             p.setId(1);
             return p;
         });
 
-        Project created = projectService.create(7, body);
+        Project created = projectService.create(7, request);
 
         assertEquals("short-drama-agent", created.getModule());
         verify(contentRepository).save(any(ProjectContent.class));
     }
 
     @Test
-    void createRejectsTooLongTitle() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("title", repeat('a', 101));
+    void createDefaultsModuleWhenOmitted() {
+        ProjectCreateRequest request = new ProjectCreateRequest();
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> {
+            Project p = invocation.getArgument(0);
+            p.setId(1);
+            return p;
+        });
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> projectService.create(7, body));
+        assertEquals("script", projectService.create(7, request).getModule());
+    }
+
+    @Test
+    void createRejectsTooLongTitle() {
+        ProjectCreateRequest request = new ProjectCreateRequest();
+        request.setTitle(repeat('a', 101));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> projectService.create(7, request));
 
         assertEquals("title 长度不能超过 100 个字符", ex.getMessage());
         verify(projectRepository, never()).save(any());
@@ -66,19 +80,19 @@ class ProjectServiceTest {
 
     @Test
     void createRejectsTooLongType() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("type", repeat('a', 33));
+        ProjectCreateRequest request = new ProjectCreateRequest();
+        request.setType(repeat('a', 33));
 
-        assertThrows(BusinessException.class, () -> projectService.create(7, body));
+        assertThrows(BusinessException.class, () -> projectService.create(7, request));
         verify(projectRepository, never()).save(any());
     }
 
     @Test
     void createRejectsTooLongModule() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("module", repeat('a', 65));
+        ProjectCreateRequest request = new ProjectCreateRequest();
+        request.setModule(repeat('a', 65));
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> projectService.create(7, body));
+        BusinessException ex = assertThrows(BusinessException.class, () -> projectService.create(7, request));
 
         assertEquals("module 长度不能超过 64 个字符", ex.getMessage());
         verify(projectRepository, never()).save(any());
@@ -101,6 +115,46 @@ class ProjectServiceTest {
         Project saved = projectService.patchModule(7, 1, "short-drama-agent");
 
         assertEquals("short-drama-agent", saved.getModule());
+    }
+
+    @Test
+    void saveContentSerializesObjectsAndKeepsRawStrings() {
+        Project project = new Project();
+        project.setId(1);
+        project.setUserId(7);
+        when(projectRepository.findById(1)).thenReturn(Optional.of(project));
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(contentRepository.findById(1)).thenReturn(Optional.empty());
+        when(contentRepository.save(any(ProjectContent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProjectContentRequest request = new ProjectContentRequest();
+        request.setScript("正文");
+        request.setScenes(JsonNodeFactory.instance.arrayNode());
+        request.setMedia(JsonNodeFactory.instance.objectNode());
+
+        Map<String, Object> view = projectService.saveContent(7, 1, request);
+
+        assertEquals("正文", view.get("script"));
+        verify(contentRepository).save(argThat(content ->
+                "[]".equals(content.getScenes()) && "{}".equals(content.getMedia())));
+    }
+
+    @Test
+    void saveContentUsesDefaultsWhenFieldsMissing() {
+        Project project = new Project();
+        project.setId(1);
+        project.setUserId(7);
+        when(projectRepository.findById(1)).thenReturn(Optional.of(project));
+        when(projectRepository.save(any(Project.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(contentRepository.findById(1)).thenReturn(Optional.empty());
+        when(contentRepository.save(any(ProjectContent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        projectService.saveContent(7, 1, new ProjectContentRequest());
+
+        verify(contentRepository).save(argThat(content ->
+                "".equals(content.getScript())
+                        && "[]".equals(content.getScenes())
+                        && "{}".equals(content.getMedia())));
     }
 
     private static String repeat(char c, int count) {
