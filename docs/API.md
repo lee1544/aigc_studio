@@ -2000,3 +2000,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-04 | 修复 `t_user.role` 与 RBAC 管理员角色不一致：仅 `SUPER_ADMIN`/`ORG_ADMIN_*` 同步 `role=admin`，移除后回 `user`；`NORMAL_ADMIN_*` 与用户自建角色只授予权限、保持 `user`；默认超管不可移除管理员角色；JWT 过滤器改用数据库中的账号类型，降级后旧 token 立即失效 |
 | 2026-11-04 | 初始化脚本合并：`db/migration` 仅保留 `V1__init.sql`，包含原 V1~V6 的最终表结构、权限/组织/管理员种子、平台设置与模型配置；删除 V2~V6 与独立全量脚本。V1 仅面向全新空库，旧库不再兼容，需重建数据库 |
 | 2026-11-05 | 修复 `created_at`/`last_login_at` 时区错误：数据库本地墙上时间（如 `14:45`）此前被直接标成 `14:45:25Z`，前端按 UTC 再转北京时区后变为 `22:45`；现改为按 JVM 时区解释后转换为 UTC（`06:45:25Z`） |
+| 2026-11-05 | 客户端在响应写完前断开（如 Node 服务超时/重启，Windows 报“你的主机中的软件中止了一个已建立的连接”）不再记为 500 系统异常：`GlobalExceptionHandler` 识别 `ClientAbortException`/连接重置类 IOException，按 499 处理并降为 debug 日志 |

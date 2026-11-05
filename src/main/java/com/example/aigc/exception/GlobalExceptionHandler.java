@@ -21,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import javax.persistence.PersistenceException;
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -28,6 +29,9 @@ import java.util.Map;
 public class GlobalExceptionHandler {
     
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /** nginx 约定：客户端在服务端返回响应前关闭了连接（非标准状态码，仅用于日志与埋点区分）。 */
+    private static final int CLIENT_CLOSED_REQUEST = 499;
     
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Object>> handleBusinessException(BusinessException e, HttpServletRequest request) {
@@ -202,9 +206,32 @@ public class GlobalExceptionHandler {
                 || lower.contains("out of range");
     }
 
+    /**
+     * 客户端（Node 服务、浏览器、网关）在响应写完之前断开连接时，Tomcat 会抛
+     * {@code ClientAbortException}（IOException 子类），Windows 上的信息是
+     * “你的主机中的软件中止了一个已建立的连接”。
+     * <p>
+     * 这不是服务端故障，也无法把 500 写回已经关闭的连接；只记 debug，避免错误日志被
+     * 正常断连刷屏。其他 IOException 仍按系统异常处理并回显 500。
+     */
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<?> handleIOException(IOException e, HttpServletRequest request) {
+        if (isConnectionAbort(e)) {
+            logger.debug("客户端提前断开连接 - {}: {}", request.getRequestURI(), e.getMessage());
+            return ResponseEntity.status(CLIENT_CLOSED_REQUEST).build();
+        }
+        logger.error("IO 异常 - {}: {}", request.getRequestURI(), e.getMessage(), e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ApiResponse<>(500, "系统异常，请联系管理员"));
+    }
+
     /** 兜底：原始异常信息只进日志，不回显给调用方（避免泄漏内部实现与数据）。 */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Object>> handleRuntimeException(RuntimeException e, HttpServletRequest request) {
+        if (isConnectionAbort(e)) {
+            logger.debug("客户端提前断开连接 - {}: {}", request.getRequestURI(), e.getMessage());
+            return ResponseEntity.status(CLIENT_CLOSED_REQUEST).build();
+        }
         logger.error("运行时异常 - {}: {}", request.getRequestURI(), e.getMessage(), e);
         ApiResponse<Object> response = new ApiResponse<>(500, "服务器内部错误");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
@@ -212,8 +239,38 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleException(Exception e, HttpServletRequest request) {
+        if (isConnectionAbort(e)) {
+            logger.debug("客户端提前断开连接 - {}: {}", request.getRequestURI(), e.getMessage());
+            return ResponseEntity.status(CLIENT_CLOSED_REQUEST).build();
+        }
         logger.error("系统异常 - {}: {}", request.getRequestURI(), e.getMessage(), e);
         ApiResponse<Object> response = new ApiResponse<>(500, "系统异常，请联系管理员");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    }
+
+    /** Tomcat 的 ClientAbortException 不在编译期依赖里直接引用，按类名 + 常见报文向下追溯。 */
+    static boolean isConnectionAbort(Throwable throwable) {
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if ("org.apache.catalina.connector.ClientAbortException".equals(current.getClass().getName())) {
+                return true;
+            }
+            if (current instanceof java.net.SocketException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message == null) {
+                continue;
+            }
+            String lower = message.toLowerCase();
+            if (lower.contains("broken pipe")
+                    || lower.contains("connection reset")
+                    || lower.contains("connection abort")
+                    || lower.contains("connection was aborted")
+                    || message.contains("中止了一个已建立的连接")
+                    || message.contains("远程主机强迫关闭")) {
+                return true;
+            }
+        }
+        return false;
     }
 }
