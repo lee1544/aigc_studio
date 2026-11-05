@@ -18,4 +18,7 @@ public interface RoleRepository extends JpaRepository<Role, Integer> {
     List<Role> findByOrgId(Integer orgId);
     
     boolean existsByRoleCodeAndOrgId(String roleCode, Integer orgId);
+
+    /** t_role.role_code 全局唯一，创建前必须按全局口径校验。 */
+    boolean existsByRoleCode(String roleCode);
 }

@@ -8,7 +8,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** 系统设置：PUT /api/admin/system-settings、GET /api/public/settings、GET /api/admin/apis（旧兼容）。 */
+/**
+ * 系统设置：PUT /api/admin/system-settings、GET /api/public/settings、GET /api/admin/apis（旧兼容）。
+ * <p>平台参数是全局配置，管理员（含组织管理员）均可维护；公开读取接口保持开放。
+ */
 @RestController
 public class AdminSystemController {
 

@@ -28,6 +28,10 @@
 
   function init() {
     AdminPage.bindModalClose();
+    // 组织生命周期（创建/修改/删除）只开放给全局超级管理员
+    if (!AdminPage.isSuperAdmin()) {
+      el('createBtn').hidden = true;
+    }
     bindEvents();
     loadList();
   }
@@ -121,8 +125,8 @@
       return;
     }
 
-    var canUpdate = AdminPage.can('org:update');
-    var canDelete = AdminPage.can('org:delete');
+    var canUpdate = AdminPage.isSuperAdmin() && AdminPage.can('org:update');
+    var canDelete = AdminPage.isSuperAdmin() && AdminPage.can('org:delete');
     body.innerHTML = state.items.map(function (org) {
       var actions = '';
       if (canUpdate) {
@@ -183,11 +187,15 @@
   }
 
   function openCreate() {
+    if (!AdminPage.isSuperAdmin()) {
+      AIGCS.toast('只有超级管理员可以创建组织', 'error');
+      return;
+    }
     state.editing = null;
     el('orgForm').reset();
     el('orgId').value = '';
     el('orgModalTitle').textContent = '新建组织';
-    el('orgModalHint').textContent = '创建组织时会自动生成管理员角色和普通管理员角色。';
+    el('orgModalHint').textContent = '创建组织时会自动生成组织创作角色，并用下方账号信息创建学校创作账号。';
     el('orgStatusField').hidden = true;
     el('orgAdminFields').hidden = false;
     el('orgSubmitBtn').textContent = '创建组织';
@@ -231,14 +239,20 @@
 
     if (!id) {
       body.adminUsername = el('adminUsername').value.trim();
+      body.adminEmail = el('adminEmail').value.trim();
       body.adminPassword = el('adminPassword').value;
       body.adminRealName = el('adminRealName').value.trim();
-      if (!body.adminUsername || !body.adminRealName || !body.adminPassword) {
-        AIGCS.toast('请填写完整的初始管理员信息', 'error');
+      if (!body.adminUsername || !body.adminRealName || !body.adminEmail || !body.adminPassword) {
+        AIGCS.toast('请填写完整的学校创作账号信息', 'error');
+        return;
+      }
+      if (body.adminEmail.indexOf('@') <= 0) {
+        AIGCS.toast('请输入正确的登录邮箱', 'error');
+        el('adminEmail').focus();
         return;
       }
       if (body.adminPassword.length < 6) {
-        AIGCS.toast('管理员密码至少 6 个字符', 'error');
+        AIGCS.toast('登录密码至少 6 个字符', 'error');
         el('adminPassword').focus();
         return;
       }
@@ -260,7 +274,7 @@
           method: 'POST',
           body: body
         });
-        AIGCS.toast('组织已创建，初始管理员可以登录了', 'success');
+        AIGCS.toast('组织已创建，学校创作账号可以登录创作平台了', 'success');
       }
       AdminPage.closeModal('orgModal');
       loadList();

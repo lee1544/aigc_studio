@@ -13,8 +13,9 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * /api/admin/** 管理员角色校验。
  * <p>
- * JWT 过滤器只负责认证，不区分 admin/user；这里补上管理端授权边界。
- * /api/admin/login 在 WebMvcConfig 中排除；DEV_BYPASS_TOKEN 由过滤器写入 role=admin，仍然放行。
+ * 只有全局超级管理员可以访问两个管理后台的接口；JWT 过滤器只负责认证，
+ * 这里补上管理端授权边界。DEV_BYPASS_TOKEN 由过滤器写入 role=admin/isSuperAdmin=true，
+ * 仍然放行。/api/admin/login 在 WebMvcConfig 中排除。
  */
 @Component
 public class AdminRoleInterceptor implements HandlerInterceptor {
@@ -30,7 +31,8 @@ public class AdminRoleInterceptor implements HandlerInterceptor {
             return true;
         }
         Object role = request.getAttribute("role");
-        if ("admin".equals(role)) {
+        Object superAdmin = request.getAttribute("isSuperAdmin");
+        if ("admin".equals(role) && Boolean.TRUE.equals(superAdmin)) {
             return true;
         }
 

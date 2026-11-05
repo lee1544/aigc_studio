@@ -5,9 +5,10 @@ import com.example.aigc.entity.Role;
 import com.example.aigc.entity.User;
 import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
+import com.example.aigc.exception.ForbiddenException;
 import com.example.aigc.exception.NotFoundException;
-import com.example.aigc.exception.UnauthorizedException;
 import com.example.aigc.filter.UserSessionCache;
+import com.example.aigc.repository.OrganizationRepository;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.repository.UserRoleRepository;
@@ -50,6 +51,9 @@ class UserServiceTest {
     private OrganizationService organizationService;
 
     @Mock
+    private OrganizationRepository organizationRepository;
+
+    @Mock
     private UserSessionCache userSessionCache;
 
     @InjectMocks
@@ -79,6 +83,7 @@ class UserServiceTest {
     @Test
     void testCreateUser_Success() {
         when(userRepository.existsByUsername("newuser")).thenReturn(false);
+        when(organizationRepository.existsById(1)).thenReturn(true);
         when(passwordEncoder.encode("password123")).thenReturn("encodedPassword");
         // 模拟 JPA save 的回填 ID 行为
         when(userRepository.save(any())).thenAnswer(invocation -> {
@@ -107,6 +112,17 @@ class UserServiceTest {
 
         verify(userRepository, never()).save(any());
         verify(userRoleRepository, never()).save(any());
+    }
+
+    @Test
+    void testCreateUser_UnknownOrgIsRejected() {
+        when(userRepository.existsByUsername("newuser")).thenReturn(false);
+        when(organizationRepository.existsById(99)).thenReturn(false);
+
+        assertThrows(BusinessException.class, () ->
+                userService.createUser(99, createRequest));
+
+        verify(userRepository, never()).save(any());
     }
 
     // ==================== getUsersByOrgId ====================
@@ -308,6 +324,7 @@ class UserServiceTest {
 
         Integer[] roleIds = {1, 3};
 
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
         when(roleRepository.findById(1)).thenReturn(Optional.of(role1));
         when(roleRepository.findById(3)).thenReturn(Optional.of(role2));
 
@@ -323,6 +340,7 @@ class UserServiceTest {
     void testAssignRolesToUser_RoleNotFound() {
         Integer[] roleIds = {999};
 
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
         when(roleRepository.findById(999)).thenReturn(Optional.empty());
 
         assertThrows(NotFoundException.class, () ->
@@ -340,9 +358,10 @@ class UserServiceTest {
 
         Integer[] roleIds = {1};
 
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
         when(roleRepository.findById(1)).thenReturn(Optional.of(role));
 
-        assertThrows(UnauthorizedException.class, () ->
+        assertThrows(BusinessException.class, () ->
                 userService.assignRolesToUser(1, roleIds, 1));
 
         verify(userRoleRepository).deleteByUserId(1);
@@ -350,16 +369,177 @@ class UserServiceTest {
     }
 
     @Test
-    void testAssignRolesToUser_GlobalRoleAllowed() {
-        Role globalRole = new Role();
-        globalRole.setId(9);
-        globalRole.setOrgId(null); // 全局角色（超级管理员）
+    void testAssignRolesToUser_CrossOrgTargetRejected() {
+        User otherOrgUser = new User();
+        otherOrgUser.setId(7);
+        otherOrgUser.setRole("user");
+        otherOrgUser.setOrgId(2);
+        // 组织管理员（scopeOrgId=1）不能操作其他组织的账号
+        when(userRepository.findById(7)).thenReturn(Optional.of(otherOrgUser));
 
-        when(roleRepository.findById(9)).thenReturn(Optional.of(globalRole));
+        assertThrows(NotFoundException.class, () ->
+                userService.assignRolesToUser(7, new Integer[]{1}, 1));
 
-        userService.assignRolesToUser(1, new Integer[]{9}, 1);
+        verify(userRoleRepository, never()).deleteByUserId(anyInt());
+    }
+
+    @Test
+    void testAssignRolesToUser_SuperAdminRoleAllowedForSuperAdmin() {
+        Role superRole = new Role();
+        superRole.setId(9);
+        superRole.setRoleCode("SUPER_ADMIN");
+        superRole.setOrgId(null); // 全局角色
+
+        User adminTarget = new User();
+        adminTarget.setId(2);
+        adminTarget.setRole("admin");
+        adminTarget.setOrgId(1);
+
+        when(userRepository.findById(2)).thenReturn(Optional.of(adminTarget));
+        when(roleRepository.findById(9)).thenReturn(Optional.of(superRole));
+
+        userService.assignRolesToUser(2, new Integer[]{9}, null);
 
         verify(userRoleRepository).save(any(UserRole.class));
-        verify(userSessionCache).evict(1);
+        verify(userSessionCache).evict(2);
+    }
+
+    @Test
+    void testAssignRolesToUser_SuperAdminRoleRejectedForOrgAdmin() {
+        Role superRole = new Role();
+        superRole.setId(9);
+        superRole.setRoleCode("SUPER_ADMIN");
+        superRole.setOrgId(null);
+
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
+        when(roleRepository.findById(9)).thenReturn(Optional.of(superRole));
+
+        assertThrows(ForbiddenException.class, () ->
+                userService.assignRolesToUser(1, new Integer[]{9}, 1));
+
+        verify(userRoleRepository, never()).save(any(UserRole.class));
+    }
+
+    @Test
+    void testAssignRolesToUser_GlobalNonSuperRoleRejected() {
+        Role personalRole = new Role();
+        personalRole.setId(10);
+        personalRole.setRoleCode("USER_FEATURES_1");
+        personalRole.setOrgId(null);
+
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
+        when(roleRepository.findById(10)).thenReturn(Optional.of(personalRole));
+
+        assertThrows(BusinessException.class, () ->
+                userService.assignRolesToUser(1, new Integer[]{10}, 1));
+
+        verify(userRoleRepository, never()).save(any(UserRole.class));
+    }
+
+    @Test
+    void testAssignRolesToUser_OrgAdminRoleKeepsUser() {
+        User target = new User();
+        target.setId(5);
+        target.setRole("user");
+        target.setOrgId(1);
+
+        Role role = new Role();
+        role.setId(2);
+        role.setRoleCode("ORG_ADMIN_1");
+        role.setOrgId(1);
+
+        when(userRepository.findById(5)).thenReturn(Optional.of(target));
+        when(roleRepository.findById(2)).thenReturn(Optional.of(role));
+
+        userService.assignRolesToUser(5, new Integer[]{2}, 1);
+
+        assertEquals("user", target.getRole());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void testAssignRolesToUser_NormalAdminRoleKeepsUser() {
+        User target = new User();
+        target.setId(6);
+        target.setRole("user");
+        target.setOrgId(1);
+
+        Role role = new Role();
+        role.setId(3);
+        role.setRoleCode("NORMAL_ADMIN_1");
+        role.setOrgId(1);
+
+        when(userRepository.findById(6)).thenReturn(Optional.of(target));
+        when(roleRepository.findById(3)).thenReturn(Optional.of(role));
+
+        userService.assignRolesToUser(6, new Integer[]{3}, 1);
+
+        assertEquals("user", target.getRole());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void testAssignRolesToUser_CustomRoleKeepsUser() {
+        User target = new User();
+        target.setId(7);
+        target.setRole("user");
+        target.setOrgId(1);
+
+        Role role = new Role();
+        role.setId(8);
+        role.setRoleCode("EDITOR");
+        role.setOrgId(1);
+
+        when(userRepository.findById(7)).thenReturn(Optional.of(target));
+        when(roleRepository.findById(8)).thenReturn(Optional.of(role));
+
+        userService.assignRolesToUser(7, new Integer[]{8}, 1);
+
+        assertEquals("user", target.getRole());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void testAssignRolesToUser_AdminIsDemotedWhenOnlyCustomRoleRemains() {
+        User target = new User();
+        target.setId(2);
+        target.setRole("admin");
+        target.setOrgId(1);
+
+        Role customRole = new Role();
+        customRole.setId(7);
+        customRole.setRoleCode("EDITOR");
+        customRole.setOrgId(1);
+
+        when(userRepository.findById(2)).thenReturn(Optional.of(target));
+        when(roleRepository.findById(7)).thenReturn(Optional.of(customRole));
+
+        userService.assignRolesToUser(2, new Integer[]{7}, 1);
+
+        assertEquals("user", target.getRole());
+        verify(userRepository).save(target);
+    }
+
+    @Test
+    void testAssignRolesToUser_DefaultSuperAdminCannotLoseAdminRole() {
+        User target = new User();
+        target.setId(1);
+        target.setUsername("admin");
+        target.setRole("admin");
+        target.setOrgId(1);
+
+        Role customRole = new Role();
+        customRole.setId(7);
+        customRole.setRoleCode("EDITOR");
+        customRole.setOrgId(1);
+
+        when(userRepository.findById(1)).thenReturn(Optional.of(target));
+        when(roleRepository.findById(7)).thenReturn(Optional.of(customRole));
+
+        assertThrows(BusinessException.class, () ->
+                userService.assignRolesToUser(1, new Integer[]{7}, 1));
+
+        assertEquals("admin", target.getRole());
+        verify(userRepository, never()).save(any(User.class));
     }
 }

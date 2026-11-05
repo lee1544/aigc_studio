@@ -122,7 +122,7 @@
   function renderTable() {
     var body = el('permissionTableBody');
     var items = filteredPermissions();
-    var canUpdate = AdminPage.can('role:update') && AdminPage.isSuperAdmin();
+    var canUpdate = AdminPage.can('role:update');
     var enabledCount = state.permissions.filter(function (permission) {
       return Number(permission.status) === 1;
     }).length;

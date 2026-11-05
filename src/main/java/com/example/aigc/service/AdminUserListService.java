@@ -63,9 +63,11 @@ public class AdminUserListService {
      * @param pageSize 有效范围 1-100，越界按 20
      * @param keyword 模糊匹配 name/realName/email/username/phone，可空
      * @param status  active/disabled/deleted/all，缺省排除 deleted
+     * @param scopeOrgId 数据范围：null 表示全部组织（超级管理员），否则只查该组织
      */
     @Transactional(readOnly = true)
-    public Page<AdminUserListItemDto> page(int page, int pageSize, String keyword, String status) {
+    public Page<AdminUserListItemDto> page(int page, int pageSize, String keyword, String status,
+                                           Integer scopeOrgId) {
         int safePage = Math.max(page, 0);
         int safeSize = (pageSize <= 0 || pageSize > 100) ? 20 : pageSize;
         String rawStatus = status == null ? null : status.trim().toLowerCase();
@@ -78,6 +80,9 @@ public class AdminUserListService {
         Specification<User> spec = (root, query, cb) -> {
             List<Predicate> ps = new ArrayList<>();
             ps.add(cb.equal(root.get("role"), "user"));
+            if (scopeOrgId != null) {
+                ps.add(cb.equal(root.get("orgId"), scopeOrgId));
+            }
             if ("active".equals(statusFilter)) {
                 ps.add(cb.equal(root.get("status"), 1));
             } else if ("disabled".equals(statusFilter)) {

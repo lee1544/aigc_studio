@@ -1,8 +1,10 @@
 package com.example.aigc.filter;
 
 import com.example.aigc.constant.FeaturePermissions;
+import com.example.aigc.entity.Organization;
 import com.example.aigc.entity.User;
 import com.example.aigc.event.SessionPermissionChangedEvent;
+import com.example.aigc.repository.OrganizationRepository;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.service.PermissionService;
 import com.example.aigc.service.UserRoleService;
@@ -21,9 +23,10 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 用户会话信息缓存：tokenVersion、role、有效权限码（admin 权限码 + 25 项 feature）。
+ * 用户会话信息缓存：tokenVersion、role、orgId、是否全局超级管理员、有效权限码（admin 权限码 + feature）。
  * <p>
  * filter 每次请求取用，tokenVersion 用于使旧 token 立即失效；权限变更/改密/禁用/登出时 evict。
+ * 超级管理员标识按数据库角色绑定实时计算，不依赖 JWT 声明。
  */
 @Component
 public class UserSessionCache {
@@ -32,18 +35,26 @@ public class UserSessionCache {
         public final Integer userId;
         public final Integer tokenVersion;
         public final String role;
+        public final Integer orgId;
+        public final boolean superAdmin;
         public final List<String> permissions;
 
-        SessionInfo(Integer userId, Integer tokenVersion, String role, List<String> permissions) {
+        SessionInfo(Integer userId, Integer tokenVersion, String role, Integer orgId,
+                    boolean superAdmin, List<String> permissions) {
             this.userId = userId;
             this.tokenVersion = tokenVersion;
             this.role = role;
+            this.orgId = orgId;
+            this.superAdmin = superAdmin;
             this.permissions = permissions == null ? Collections.emptyList() : permissions;
         }
     }
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private OrganizationRepository organizationRepository;
 
     @Autowired
     private UserRoleService userRoleService;
@@ -86,13 +97,22 @@ public class UserSessionCache {
         if (user.getStatus() != null && user.getStatus() < 1) {
             return null;
         }
+        // 组织禁用/删除后，组织内账号的旧会话立即失效
+        if (user.getOrgId() != null && user.getOrgId() > 0) {
+            Organization org = organizationRepository.findById(user.getOrgId()).orElse(null);
+            if (org == null || org.getStatus() == null || org.getStatus() < 1) {
+                return null;
+            }
+        }
 
         List<Integer> roleIds = userRoleService.getRoleIdsByUserId(userId);
         List<String> codes = permissionService.getPermissionCodesByRoleIds(roleIds);
+        boolean superAdmin = userRoleService.isSuperAdminByRoleIds(roleIds);
 
-        // 角色权限码已包含个人 feature 角色下的 25 项 feature，去重后作为会话权限快照
+        // 角色权限码已包含个人 feature 角色下的 feature，去重后作为会话权限快照
         Set<String> merged = new LinkedHashSet<>(codes);
-        return new SessionInfo(userId, user.getTokenVersion(), user.getRole(), new ArrayList<>(merged));
+        return new SessionInfo(userId, user.getTokenVersion(), user.getRole(),
+                user.getOrgId(), superAdmin, new ArrayList<>(merged));
     }
 
     /**
@@ -126,7 +146,12 @@ public class UserSessionCache {
         return info != null && "admin".equals(info.role);
     }
 
-    /** 列出当前会话的 25 项 feature 快照（布尔）。 */
+    /** 当前用户是否全局超级管理员。 */
+    public static boolean isSuperAdmin(SessionInfo info) {
+        return info != null && info.superAdmin;
+    }
+
+    /** 列出当前会话的 feature 快照（布尔）。 */
     public static java.util.Map<String, Boolean> featureSnapshot(SessionInfo info) {
         java.util.Map<String, Boolean> snap = FeaturePermissions.allFalse();
         if (info != null) {

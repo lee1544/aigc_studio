@@ -1,5 +1,7 @@
 # AIGC Studio API 接口文档
 
+> **2026-11-05 账号模型变更**：两个管理后台（服务端/客户端）均仅允许 `SUPER_ADMIN` 登录；`ORG_ADMIN_{orgId}` 改为“组织创作角色”，账号 `role=user`，只能登录创作平台；`NORMAL_ADMIN_*` 废弃，不再创建；创建组织新增 `adminEmail`，组织创作角色默认无任何权限；新增 `GET /api/permissions?scope=feature`、`GET /api/roles/{id}/permission-snapshot`、带 `expectedVersion` 的角色权限保存、`GET /api/internal/organizations`。本文中涉及旧 `ORG_ADMIN` / `NORMAL_ADMIN` 的章节以 [`docs/frontend-rbac-confirmation.md`](frontend-rbac-confirmation.md) 为准。
+
 > 适用范围：本仓库 Java 服务（Spring Boot 2.6 / Java 8）。
 > 文档基于当前 `main` 分支代码整理，覆盖 Java 归属的全部 `/api/**` 接口与 `/admin` 静态入口。
 > Node 归属能力（积分、计费、生成执行、任务、文件、模型目录等）不在本文档范围内，Java 侧统一返回 `503`，见 [第 14 节](#14-node-归属占位接口)。
@@ -159,7 +161,15 @@ Token 由登录/注册接口返回，载荷包含：
 | Spring Security | `anyRequest().authenticated()`；公开路径见下表 |
 | 管理端拦截器 | `/api/admin/**` 要求 JWT `role=admin`（`/api/admin/login` 除外），否则 `403` |
 | 方法级权限 | `@RequirePermission("xxx")` 校验会话权限码；缺失返回 `403` |
-| 组织隔离 | 旧版 `/api/users`、`/api/organizations` 等按当前 `orgId` 过滤；跨组织访问按 `404` 处理 |
+| 超级管理员专属 | `@SuperAdminOnly` 标注的接口仅 `SUPER_ADMIN` 可访问，其余管理员返回 `403`。当前包括：组织创建/修改/删除。模型连接与模型配置、Agent/工作流/Skill 管理端接口、系统设置、权限码启停对管理员（含组织管理员）开放 |
+| 数据范围 | 超级管理员不受组织限制，可查看所有组织的数据；组织管理员只能访问 `org_id = 当前账号 orgId` 的数据，跨组织读写按 `404`（资源不存在）或 `403`（超级管理员专属）处理 |
+
+**初始化不变量**（Flyway 种子数据 + 启动时 `RbacInitializer` 幂等补齐）：
+
+- 创建默认组织 `DEFAULT_ORG` / “默认组织”，作为平台级账号的归属组织；
+- 创建全局超级管理员角色 `SUPER_ADMIN`（`org_id = NULL`），并分配**所有启用中**的权限码（含后续新增权限，启动时会自动补齐）；
+- 创建默认超级管理员账号 `admin / admin123`（仅在账号不存在时创建，不会重置已有密码），并绑定 `SUPER_ADMIN`；
+- 为每个组织补齐内置的 `ORG_ADMIN_{orgId}` / `NORMAL_ADMIN_{orgId}` 角色（缺失时创建，已有角色不重置授权）。
 
 **完全公开（无需 token）的路径**：
 
@@ -234,6 +244,8 @@ Token 由登录/注册接口返回，载荷包含：
 ```
 
 错误：`401` 用户名或密码错误 / 非管理员账号 / 账号已被禁用或删除。
+
+> 登录型管理员由 `t_user.role=admin` 判定。只有绑定 `SUPER_ADMIN` 或 `ORG_ADMIN_*` 角色时系统才会自动同步 `role=admin`；`NORMAL_ADMIN_*` 与用户自建角色只增加权限集合，账号仍为 `user`，不能登录管理端。组织管理员与超级管理员都走本入口。
 
 ### 2.2 管理员当前会话
 
@@ -326,6 +338,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 > 所有接口要求 `role=admin`，并额外校验括号中的 `user:*` 权限码。
 > 仅能操作 `role=user` 的创作者账号；管理员账号返回 `400 仅可操作创作者账号`。
+> 数据范围：超级管理员可查看/管理全部组织的创作者；组织管理员只能看到并管理本组织的创作者，跨组织按 `404` 处理。
 
 ### 3.1 创作者列表
 
@@ -337,6 +350,7 @@ Token 由登录/注册接口返回，载荷包含：
 | `pageSize` | int | 20 | 有效 1–100，越界/非正数按 20 |
 | `keyword` | string | — | 模糊匹配 `name/realName/email/username/phone`（不区分大小写） |
 | `status` | string | — | `active` / `disabled` / `deleted` / `all`；缺省排除已删除 |
+| `orgId` | int | — | 组织筛选；仅超级管理员生效，组织管理员传入会被忽略并强制本组织 |
 
 响应 `200`：
 
@@ -373,6 +387,7 @@ Token 由登录/注册接口返回，载荷包含：
 - `roleIds/roleNames` 已排除个人角色 `USER_FEATURES_*`。
 - 每页批量补齐组织名、角色、feature，避免 N+1。
 - 非法 `status` 返回 `400`。
+- 超级管理员返回全部组织的账号（`orgId/orgName` 用于区分）；组织管理员只返回本组织账号。
 
 ### 3.2 创建创作者
 
@@ -385,7 +400,8 @@ Token 由登录/注册接口返回，载荷包含：
   "name": "创作者",
   "email": "creator@example.com",
   "password": "secret123",
-  "features": { "script": true, "textToImage": true }
+  "features": { "script": true, "textToImage": true },
+  "orgId": 2
 }
 ```
 
@@ -395,10 +411,13 @@ Token 由登录/注册接口返回，载荷包含：
 | `email` | string | 是 | 合法邮箱，≤ 50，全局唯一；同时作为 `username` |
 | `password` | string | 是 | 6–256 |
 | `features` | object | 否 | 已知 25 项 feature 的布尔值；省略时全 false |
+| `orgId` | int | 否 | 目标组织；仅超级管理员生效（按组织筛选后创建），组织管理员传入会被忽略 |
 
 响应 `200`：`ContractUserDto`（`id`/`name`/`email`/`role`/`status`/`created_at`，不含密码、角色与 feature 明细）。
 
-错误：`409` 邮箱已存在；`400` feature 名称未知或值非布尔。
+行为：默认 `orgId` 取调用方所属组织，并建立个人 feature 角色；超级管理员可传 `orgId` 把创作者建到指定组织。组织管理员创建的创作者只在本组织可见。
+
+错误：`409` 邮箱已存在；`400` feature 名称未知或值非布尔、组织不存在。
 
 ### 3.3 修改创作者
 
@@ -430,7 +449,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 响应 `200`：`ContractUserDto`。
 
-错误：`404` 用户不存在；`400` 仅可操作创作者账号 / 状态非法 / 密码过短；`409` 邮箱已存在。
+错误：`404` 用户不存在或不在当前数据范围；`400` 仅可操作创作者账号 / 状态非法 / 密码过短；`409` 邮箱已存在。
 
 ### 3.4 启用/禁用创作者
 
@@ -463,7 +482,8 @@ Token 由登录/注册接口返回，载荷包含：
 
 ## 4. 功能权限（25 项 feature）
 
-> 管理端接口均要求 `role=admin`；当前未挂 `@RequirePermission`，由管理端拦截器统一校验管理员身份。
+> 管理端接口要求 `role=admin`，并校验括号中的权限码（读取 `user:view`、写入 `user:update`）。
+> 数据范围：超级管理员可操作全部组织账号；组织管理员只能操作本组织账号，跨组织按 `404` 处理，审计记录同样按组织过滤。
 > 歌词识别（`lyricRecognition`）已随前端功能下线，不再出现在 feature 快照和写入校验中。
 > 管理后台的“权限管理”页与角色授权弹窗只展示后端 RBAC 权限码，不展示这些 feature；feature 仅通过本节接口按账号维护。
 
@@ -565,6 +585,9 @@ Token 由登录/注册接口返回，载荷包含：
 
 ## 5. 组织管理
 
+> 组织生命周期属于平台级操作：**创建 / 修改 / 删除仅超级管理员可执行**（`@SuperAdminOnly`，否则 `403`）。
+> 组织管理员只能查看自己的组织（列表只返回 1 条，详情跨组织按 `404`）。
+
 ### 5.1 组织列表
 
 `GET /api/organizations` · `org:view`
@@ -577,15 +600,20 @@ Token 由登录/注册接口返回，载荷包含：
 
 响应 `200`：`PageResponse<Organization>`，按 `createTime desc, id desc` 排序。
 
+- 超级管理员：返回全部组织。
+- 组织管理员：只返回当前账号所属组织。
+
 ### 5.2 组织详情
 
 `GET /api/organizations/{id}` · `org:view`
 
 响应 `200`：`Organization`。
 
+错误：`404` 组织不存在；组织管理员访问其他组织同样返回 `404`。
+
 ### 5.3 创建组织
 
-`POST /api/organizations` · `org:create`
+`POST /api/organizations` · `org:create` + **仅超级管理员**
 
 请求：
 
@@ -602,25 +630,27 @@ Token 由登录/注册接口返回，载荷包含：
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `orgCode` | string | 是 | 全局唯一 |
-| `orgName` | string | 是 | 全局唯一 |
-| `description` | string | 否 | — |
-| `adminUsername` | string | 是 | 全局唯一 |
-| `adminPassword` | string | 是 | BCrypt 存储 |
+| `orgCode` | string | 是 | ≤ 50，全局唯一 |
+| `orgName` | string | 是 | ≤ 100，全局唯一 |
+| `description` | string | 否 | ≤ 255 |
+| `adminUsername` | string | 是 | 6–50，全局唯一 |
+| `adminPassword` | string | 是 | 6–100，BCrypt 存储 |
 | `adminRealName` | string | 是 | 同时写入 `name` 与 `realName` |
 
-行为：
+行为（同一事务）：
 
-- 创建 `ORG_ADMIN_{orgId}` 角色（含用户/组织/角色管理权限）与 `NORMAL_ADMIN_{orgId}` 角色。
-- 创建组织管理员账号：`role=admin`、`status=1`、`accountSource=组织管理员`，并绑定组织管理员角色，可直接登录 `/api/admin/login`。
+1. 校验组织编码/名称/管理员用户名唯一，任一冲突直接 `400`，不会留下半成品组织。
+2. 创建 `ORG_ADMIN_{orgId}` 角色并分配默认权限（用户/角色管理 + `org:view`，不包含组织创建/修改/删除）。
+3. 创建 `NORMAL_ADMIN_{orgId}` 角色并分配默认权限（`user:view`、`user:update`）。
+4. 使用请求中的账号信息创建组织管理员：`role=admin`、`status=1`、`accountSource=组织管理员`，绑定 `ORG_ADMIN_{orgId}`，可直接登录 `/api/admin/login`。
 
 响应 `200`：`Organization`。
 
-错误：`400` 组织编码/名称/管理员用户名已存在。
+错误：`403` 非超级管理员；`400` 组织编码/名称/管理员用户名已存在、密码过短。
 
 ### 5.4 修改组织
 
-`PUT /api/organizations/{id}` · `org:update`
+`PUT /api/organizations/{id}` · `org:update` + **仅超级管理员**
 
 请求（未传字段沿用）：
 
@@ -630,14 +660,15 @@ Token 由登录/注册接口返回，载荷包含：
 
 响应 `200`：`Organization`。
 
-错误：`404` 组织不存在；`400` 编码/名称已存在。
+错误：`403` 非超级管理员；`404` 组织不存在；`400` 编码/名称已存在、默认组织编码不可修改、默认组织不允许禁用。
 
 ### 5.5 删除组织
 
-`DELETE /api/organizations/{id}` · `org:delete`
+`DELETE /api/organizations/{id}` · `org:delete` + **仅超级管理员**
 
 行为：
 
+- 默认组织 `DEFAULT_ORG` 不允许删除（`400`）。
 - 组织内用户改为软删除（`status=-1`）并递增 `token_version`，立即撤销会话。
 - 清理用户角色、个人 feature 角色及其权限关联。
 - 删除组织角色与权限关联，最后删除组织记录。
@@ -648,21 +679,36 @@ Token 由登录/注册接口返回，载荷包含：
 { "code": 200, "message": "组织已成功删除", "timestamp": 1793674181000 }
 ```
 
+错误：`403` 非超级管理员；`404` 组织不存在；`400` 默认组织不允许删除。
+
 ---
 
 ## 6. 角色与权限码
 
-### 6.1 当前组织角色列表
+> 数据范围：超级管理员可查看/维护全部组织的角色（全局 `SUPER_ADMIN` 角色显示 `orgName=全局`）；
+> 组织管理员只能查看/维护本组织角色，全局角色、其他组织角色与创作者个人角色 `USER_FEATURES_*` 一律按 `404` 处理。
+
+### 6.1 角色列表
 
 `GET /api/roles` · `role:view`
 
-响应 `200`：`Role[]`，每个角色内联 `permissions` 数组。
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `orgId` | int | — | 组织筛选；仅超级管理员生效，组织管理员传入会被忽略并强制本组织 |
+
+响应 `200`：`Role[]`，每个角色内联 `permissions` 数组和 `orgName`。
+
+- 超级管理员：不传 `orgId` 时返回全部组织的业务角色 + 全局 `SUPER_ADMIN`；传 `orgId` 时只返回该组织的角色。
+- 组织管理员：仅本组织角色。
+- 个人 role（`USER_FEATURES_{userId}`）不作为业务角色返回。
 
 ### 6.2 角色详情
 
 `GET /api/roles/{id}` · `role:view`
 
 响应 `200`：`Role`。
+
+错误：`404` 角色不存在或不在当前数据范围。
 
 ### 6.3 创建角色
 
@@ -678,11 +724,11 @@ Token 由登录/注册接口返回，载荷包含：
 }
 ```
 
-行为：`orgId` 取自当前会话，`status=1`，`createTime/updateTime` 自动填充。
+行为：`orgId` 取自当前会话（超级管理员可用 body 中的 `orgId` 指定组织），`status=1`，`createTime/updateTime` 自动填充。
 
 响应 `200`：`Role`。
 
-错误：`400` 当前组织下角色编码已存在。
+错误：`400` 角色编码格式非法（2–50 位字母/数字/下划线/短横线）、系统保留编码（`SUPER_ADMIN`、`ORG_ADMIN_*`、`NORMAL_ADMIN_*`、`USER_FEATURES_*`）、角色编码已存在、角色名称非法。
 
 ### 6.4 修改角色
 
@@ -698,6 +744,8 @@ Token 由登录/注册接口返回，载荷包含：
 
 响应 `200`：`Role`。
 
+错误：`404` 角色不存在或不在当前数据范围；`400` 角色名称非法。
+
 ### 6.5 删除角色
 
 `DELETE /api/roles/{id}` · `role:delete`
@@ -707,6 +755,8 @@ Token 由登录/注册接口返回，载荷包含：
 行为：删除前捕获受影响用户，删除角色与权限关联，并失效这些用户的会话缓存。
 
 响应 `200`：空响应体。
+
+错误：`404` 角色不存在或不在当前数据范围；`400` 内置角色不可删除。
 
 ### 6.6 覆盖角色权限
 
@@ -723,14 +773,19 @@ Token 由登录/注册接口返回，载荷包含：
 - ID 自动去空、去重，重复提交幂等。
 - 传入不存在的权限 ID 返回 `400`，不会部分写入。
 - 事务提交后失效该角色下所有用户的权限缓存。
+- 组织管理员只能给本组织角色授权；`SUPER_ADMIN` 角色仅超级管理员可维护。
 
 响应 `200`：空响应体。
+
+错误：`404` 角色不存在或不在当前数据范围。
 
 ### 6.7 读取角色权限
 
 `GET /api/roles/{id}/permissions` · `role:view`
 
 响应 `200`：`Permission[]`。
+
+错误：`404` 角色不存在或不在当前数据范围。
 
 ### 6.8 权限码列表
 
@@ -742,7 +797,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 ### 6.9 启停权限码
 
-`PUT /api/permissions/{id}/status?status=1` · `role:update` + **仅超级管理员**
+`PUT /api/permissions/{id}/status?status=1` · `role:update`
 
 | 参数 | 位置 | 说明 |
 |---|---|---|
@@ -753,7 +808,9 @@ Token 由登录/注册接口返回，载荷包含：
 
 响应 `200`：`Permission`。
 
-错误：`400` 状态非 0/1 或权限不存在；`403` 非超级管理员。
+错误：`400` 状态非 0/1 或权限不存在；`403` 缺少 `role:update`。
+
+> 组织管理员默认拥有 `role:update`，因此可以启停权限码；该操作是全局的，会影响所有组织。
 
 ### 6.10 内置权限码
 
@@ -765,11 +822,21 @@ Token 由登录/注册接口返回，载荷包含：
 | `role:view` / `role:create` / `role:update` / `role:delete` / `role:assign-permission` | 角色管理 |
 | 25 项 feature 权限码 | 见 [16.1](#161-25-项-feature) |
 
+内置角色默认授权：
+
+| 角色 | 默认权限 |
+|---|---|
+| `SUPER_ADMIN` | 全部启用权限（启动时自动补齐新增的启用权限） |
+| `ORG_ADMIN_{orgId}` | `user:view/create/update/delete/assign-role/reset-password`、`org:view`、`role:view/create/update/delete/assign-permission` |
+| `NORMAL_ADMIN_{orgId}` | `user:view`、`user:update` |
+
+> `org:create` / `org:update` / `org:delete` 虽然仍是权限码，但对应接口同时受 `@SuperAdminOnly` 保护，只有超级管理员能真正执行；组织管理员即使被授予该权限码也会得到 `403`。
+
 ---
 
 ## 7. 模型连接与模型配置
 
-> 以下接口均要求 `role=admin`。连接与模型配置变更会递增配置版本号，供 Node 快照感知。
+> 以下接口均要求 `role=admin`（含组织管理员）。连接与模型配置属于平台级全局配置，不属于任何组织；变更会递增配置版本号，供 Node 快照感知。
 
 ### 7.1 连接列表
 
@@ -1069,6 +1136,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 ## 9. 工作流配置
 
 > Java 只持久化配置；工作流运行、任务、输出归 Node。
+> 管理端配置接口（列表/增删改/校验）要求管理员（含组织管理员），属于平台级全局配置。
 
 ### 9.1 工作流列表
 
@@ -1426,7 +1494,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 ## 12. 旧版用户管理（已废弃）
 
 > `/api/users` 为旧管理后台接口，代码中已标记 `@Deprecated`，新接入请使用 [第 3 节](#3-管理端创作者账号) 的 `/api/admin/users`。
-> 两者共享同一套会话撤销逻辑；旧接口按当前组织隔离，跨组织访问按 `404` 处理。
+> 两者共享同一套会话撤销逻辑；旧接口按数据范围隔离：组织管理员只能访问本组织数据（跨组织 `404`），超级管理员可访问全部组织。
 > 旧接口创建的用户不会初始化个人 feature 角色，功能权限默认全 false。
 
 ### 12.1 创建用户
@@ -1436,7 +1504,7 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 请求：
 
 ```json
-{ "username": "editor01", "password": "secret123", "realName": "编辑一号" }
+{ "username": "editor01", "password": "secret123", "realName": "编辑一号", "orgId": 2 }
 ```
 
 | 字段 | 类型 | 必填 | 约束 |
@@ -1444,12 +1512,13 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 | `username` | string | 是 | 6–50，全局唯一 |
 | `password` | string | 是 | 6–100 |
 | `realName` | string | 是 | 姓名 |
+| `orgId` | int | 否 | 目标组织；仅超级管理员生效（管理后台按组织筛选后创建用户），组织管理员传入会被忽略 |
 
-行为：`orgId` 取自当前会话，`status=1`，角色使用实体默认值 `user`。
+行为：默认 `orgId` 取自当前会话；超级管理员传 `orgId` 时可把用户建到指定组织。`status=1`，角色使用实体默认值 `user`。
 
 响应 `200`：`User`。
 
-错误：`400` 用户名已存在。
+错误：`400` 用户名已存在、组织不存在。
 
 ### 12.2 用户列表
 
@@ -1461,17 +1530,19 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 | `size` | int | 10 | 每页条数 |
 | `realname` | string | — | 姓名模糊匹配 |
 | `status` | int | — | 内部状态 `1/0/-1` |
+| `orgId` | int | — | 组织筛选；仅超级管理员生效，组织管理员传入会被忽略并强制本组织 |
 
 响应 `200`：`PageResponse<User>`，按 `createTime desc, id desc`。
 
 - 若当前会话拥有 `role:view`，额外填充 `roleIds/roleNames`。
 - 每条记录填充 `orgName`。
+- 超级管理员不传 `orgId` 返回全部组织的用户，传 `orgId` 只返回该组织；组织管理员只返回本组织用户。
 
 ### 12.3 用户详情
 
 `GET /api/users/{id}` · `user:view`
 
-响应 `200`：`User`；用户不属于当前组织时 `404`。
+响应 `200`：`User`；用户不在当前数据范围内时 `404`。
 
 ### 12.4 用户角色 ID
 
@@ -1559,20 +1630,23 @@ Agent 配置保存的是“原始选择”，不计算最终有效模型。
 
 约束：
 
-- `org_id = NULL` 的全局角色（如 `SUPER_ADMIN`）允许分配。
-- 其他角色必须属于当前组织，否则 `401 角色不属于当前组织`。
+- 目标账号必须在调用方数据范围内（组织管理员跨组织按 `404`）。
+- 组织角色必须属于目标账号所在组织，否则 `400 角色不属于该用户所在组织`。
+- `SUPER_ADMIN` 只有超级管理员可分配，且目标账号必须是管理员账号（`role=admin`）；组织管理员尝试分配返回 `403`。
+- 其他全局角色（含创作者个人角色 `USER_FEATURES_*`）不允许通过该接口分配（`400`）。
+- 分配 `SUPER_ADMIN` / `ORG_ADMIN_*` 后，系统自动把 `t_user.role` 同步为 `admin`，账号即可登录 `/api/admin/login`；移除这些角色后同步回 `user`。
+- `NORMAL_ADMIN_*` 与用户自建角色只授予权限集合，不会改变 `t_user.role`（保持 `user`），因此不会获得管理端登录入口。
+- 默认超级管理员账号 `admin` 不允许移除管理员角色，否则返回 `400`。
 
-行为：覆盖用户角色并清理会话缓存。
+行为：覆盖用户角色、同步账号类型并清理会话缓存。
 
 响应 `200`：空响应体。
 
 ### 12.11 按角色编码查用户
 
-`GET /api/users/by_role_code?roleCode=ORG_ADMIN_1` · 仅需登录（未挂权限注解）
+`GET /api/users/by_role_code?roleCode=ORG_ADMIN_1` · `user:view`
 
-响应 `200`：`User[]`，自动排除当前登录用户；角色不存在返回空数组。
-
-> 该接口没有 `@RequirePermission`，属于历史遗留；新代码请勿复用此模式。
+响应 `200`：`User[]`，自动排除当前登录用户；并按数据范围过滤（超级管理员返回全部组织的成员，组织管理员只返回本组织成员）；角色不存在返回空数组。
 
 ### 12.12 旧版 `User` 响应字段
 
@@ -1776,6 +1850,7 @@ Authorization: Bearer <NODE_CONFIG_READ_TOKEN>
 | `roleName` | string | 角色名称 |
 | `description` | string | 描述 |
 | `orgId` | int | 组织 ID；`null` 表示全局角色 |
+| `orgName` | string | 所属组织名称；全局角色为“全局”，列表接口返回 |
 | `status` | int | `1` 启用 |
 | `createTime` / `updateTime` | string | 时间 |
 | `permissions` | Permission[] | 仅角色列表返回时内联 |
@@ -1916,7 +1991,11 @@ curl -s http://localhost:8089/api/internal/node-config \
 |---|---|
 | 2026-11-04 | 首版：覆盖 Java 归属全部接口、权限模型、分页/错误约定、Node 占位路由与 feature/适配器附录 |
 | 2026-11-04 | `PUT /api/users/{id}/password` 改为必须提供 `oldPassword` 并通过 BCrypt 校验，失败返回 400 且不撤销会话 |
-| 2026-11-04 | 修复 `POST /api/projects` 因 `module` 超过 `VARCHAR(16)` 触发的 500：V2 迁移加宽到 64，创建/切换模块前置校验长度；数据库数据类异常统一返回 400 |
+| 2026-11-04 | 修复 `POST /api/projects` 因 `module` 超过 `VARCHAR(16)` 触发的 500：`projects.module` 加宽到 64，创建/切换模块前置校验长度；数据库数据类异常统一返回 400 |
 | 2026-11-04 | 请求体 DTO 化：`/api/admin/studio-skills`、`/api/projects`（创建/保存正文/切换模块）、`/api/admin/agent/*/config`、`/api/admin/workflows` 改用带 Bean Validation 的 DTO，超长/缺失字段返回字段级 400；工作流请求字段统一为 `remoteWorkflowId` |
 | 2026-11-04 | `PUT /api/users/{id}/password` 支持本人自助改密：本人不再要求 `user:update`，凭 `oldPassword` 校验即可；修改他人仍要求同组织 + `user:update` |
-| 2026-11-04 | 歌词识别功能下线：删除 `lyricRecognition` feature 权限码（V3 迁移清理权限行与角色关联），feature 快照由 26 项调整为 25 项；管理后台权限管理与角色授权仅展示后端 RBAC 权限码 |
+| 2026-11-04 | 歌词识别功能下线：删除 `lyricRecognition` feature 权限码，feature 快照由 26 项调整为 25 项；管理后台权限管理与角色授权仅展示后端 RBAC 权限码 |
+| 2026-11-04 | RBAC 重构：启动时幂等初始化默认组织、`SUPER_ADMIN` 角色（全部启用权限）、默认超管账号 `admin/admin123`，并为每个组织补齐内置角色；组织创建/修改/删除改为仅超级管理员，创建组织在同一事务内生成组织管理员角色、默认权限与管理员账号并绑定；组织/角色/用户/功能权限接口按组织隔离（超级管理员可见全部组织），跨组织按 404；模型连接、Agent、工作流、Skill、系统设置、权限启停仍对管理员（含组织管理员）开放 |
+| 2026-11-04 | 管理后台角色/用户列表新增组织筛选：`GET /api/roles`、`GET /api/users`、`GET /api/admin/users` 支持可选 `orgId`（超级管理员生效，组织管理员强制本组织）；`POST /api/users` 支持超级管理员把新用户建到所选组织 |
+| 2026-11-04 | 修复 `t_user.role` 与 RBAC 管理员角色不一致：仅 `SUPER_ADMIN`/`ORG_ADMIN_*` 同步 `role=admin`，移除后回 `user`；`NORMAL_ADMIN_*` 与用户自建角色只授予权限、保持 `user`；默认超管不可移除管理员角色；JWT 过滤器改用数据库中的账号类型，降级后旧 token 立即失效 |
+| 2026-11-04 | 初始化脚本合并：`db/migration` 仅保留 `V1__init.sql`，包含原 V1~V6 的最终表结构、权限/组织/管理员种子、平台设置与模型配置；删除 V2~V6 与独立全量脚本。V1 仅面向全新空库，旧库不再兼容，需重建数据库 |

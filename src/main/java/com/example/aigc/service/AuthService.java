@@ -43,7 +43,7 @@ public class AuthService {
     @Autowired private OrganizationService organizationService;
     @Autowired private SystemSettingsService systemSettingsService;
 
-    /** POST /api/admin/login：管理员用户名 + 密码。 */
+    /** POST /api/admin/login：仅全局超级管理员（用户名 + 密码）。 */
     public LoginResult adminLogin(AdminLoginRequest req) {
         User user = userRepository.findByUsername(req.getUsername())
                 .orElseThrow(() -> new UnauthorizedException("用户名或密码错误"));
@@ -54,6 +54,9 @@ public class AuthService {
         if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
             throw new UnauthorizedException("用户名或密码错误");
         }
+        if (!userRoleService.isSuperAdmin(user.getId())) {
+            throw new ForbiddenException("仅超级管理员可登录管理后台");
+        }
         // 必须在更新 lastLoginTime 之前判断，否则首次登录标记永远为 false
         boolean firstLogin = user.getLastLoginTime() == null;
         user.setLastLoginTime(LocalDateTime.now());
@@ -61,7 +64,7 @@ public class AuthService {
         return buildLoginResult(user, "admin", firstLogin);
     }
 
-    /** POST /api/auth/login：创作者 email + 密码。 */
+    /** POST /api/auth/login：学校创作账号 email + 密码。 */
     public LoginResult creatorLogin(CreatorLoginRequest req) {
         User user = userRepository.findByEmail(req.getEmail())
                 .orElseThrow(() -> new UnauthorizedException("邮箱或密码错误"));
@@ -159,26 +162,25 @@ public class AuthService {
     }
 
     /**
-     * 组装 SessionUser。管理员额外回填旧管理后台 RBAC 面板依赖的字段，
-     * 保证登录响应与 /api/admin/me 的字段口径一致。
+     * 组装 SessionUser：所有账号都返回 orgId/orgName/orgStatus、roles、permissions；
+     * 学校创作账号的 features 取组织创作角色；超管 features 全 false。
      */
     private ContractUserDto buildSessionUser(User user, boolean firstLogin) {
-        Map<String, Boolean> features = "user".equals(user.getRole())
-                ? featurePermissionService.getFeatures(user.getId())
-                : FeaturePermissions.allFalse();
+        boolean admin = "admin".equals(user.getRole());
+        Map<String, Boolean> features = admin
+                ? FeaturePermissions.allFalse()
+                : featurePermissionService.getEffectiveFeatures(user);
         ContractUserDto dto = UserMapper.toSessionUser(user, features);
-        if ("admin".equals(user.getRole())) {
-            fillAdminRbacFields(dto, user, firstLogin);
-        }
-        return dto;
-    }
 
-    private void fillAdminRbacFields(ContractUserDto dto, User user, boolean firstLogin) {
+        boolean superAdmin = admin && userRoleService.isSuperAdmin(user.getId());
+        dto.setScope(admin ? "admin" : "creator");
+        dto.setSuperAdmin(superAdmin);
         dto.setUsername(user.getUsername());
         dto.setRealName(user.getRealName());
+        dto.setFirstLogin(firstLogin);
         dto.setOrgId(user.getOrgId());
         dto.setOrgName(organizationService.getOrgNameById(user.getOrgId()));
-        dto.setFirstLogin(firstLogin);
+        dto.setOrgStatus(organizationService.getOrgStatusById(user.getOrgId()));
 
         List<Integer> roleIds = userRoleService.getRoleIdsByUserId(user.getId());
         List<String> roleCodes = roleIds.stream()
@@ -187,11 +189,21 @@ public class AuthService {
                 .collect(Collectors.toList());
         dto.setRoles(roleCodes);
         dto.setPermissions(permissionService.getPermissionCodesByRoleIds(roleIds));
+        return dto;
     }
 
     private void ensureActive(User user) {
         if (user.getStatus() == null || user.getStatus() < 1) {
             throw new UnauthorizedException("账号已被禁用或删除");
+        }
+        if (user.getOrgId() != null && user.getOrgId() > 0) {
+            Integer orgStatus = organizationService.getOrgStatusById(user.getOrgId());
+            if (orgStatus == null) {
+                throw new ForbiddenException("组织不存在或已删除");
+            }
+            if (orgStatus != 1) {
+                throw new ForbiddenException("组织已禁用");
+            }
         }
     }
 }

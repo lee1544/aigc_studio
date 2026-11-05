@@ -60,6 +60,35 @@ public class PermissionService {
         assignPermissionsToRole(roleId, permissionIds);
     }
 
+    /**
+     * 只补齐缺失的“启用中”权限，不删除角色已有授权。
+     * <p>启动初始化用它保证超级管理员始终拥有全部启用权限，同时不影响管理员手工配置。
+     *
+     * @return 本次新增的授权条数
+     */
+    @Transactional
+    public int grantMissingActivePermissions(Integer roleId) {
+        List<Permission> active = permissionRepository.findByStatus(1);
+        java.util.Set<Integer> existing = new java.util.HashSet<>();
+        for (RolePermission link : rolePermissionRepository.findByRoleId(roleId)) {
+            existing.add(link.getPermissionId());
+        }
+        List<RolePermission> links = new ArrayList<>();
+        for (Permission permission : active) {
+            if (existing.add(permission.getId())) {
+                RolePermission link = new RolePermission();
+                link.setRoleId(roleId);
+                link.setPermissionId(permission.getId());
+                links.add(link);
+            }
+        }
+        if (!links.isEmpty()) {
+            rolePermissionRepository.saveAll(links);
+            evictCacheByRoleId(roleId);
+        }
+        return links.size();
+    }
+
     @Transactional
     public void assignPermissionsByCodesToRole(Integer roleId, String[] permissionCodes) {
         rolePermissionRepository.deleteByRoleId(roleId);
@@ -139,6 +168,14 @@ public class PermissionService {
     public List<Permission> getAllBackendPermissions() {
         return permissionRepository.findAllByOrderByPermissionCodeAsc().stream()
                 .filter(permission -> SystemConstant.isBackendPermissionCode(permission.getPermissionCode()))
+                .collect(Collectors.toList());
+    }
+
+    /** 25 项创作 feature 权限（用于组织创作角色授权）。 */
+    public List<Permission> getFeaturePermissions() {
+        return permissionRepository.findAllByOrderByPermissionCodeAsc().stream()
+                .filter(permission -> com.example.aigc.constant.FeaturePermissions
+                        .isKnown(permission.getPermissionCode()))
                 .collect(Collectors.toList());
     }
 

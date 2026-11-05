@@ -45,6 +45,34 @@ public class UserContextUtil {
     public static boolean isAdmin() {
         return "admin".equals(getCurrentRole());
     }
+
+    /**
+     * 当前会话是否全局超级管理员。
+     * <p>
+     * 由 JWT 过滤器按数据库中的角色绑定实时解析并写入请求属性，
+     * 不依赖 token 里的角色声明；DEV_BYPASS_TOKEN 视为超级管理员。
+     * 非 Web 上下文（例如单元测试直接调用）返回 false。
+     */
+    public static boolean isSuperAdmin() {
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return false;
+        }
+        HttpServletRequest request = attributes.getRequest();
+        if (Boolean.TRUE.equals(request.getAttribute("isDevBypass"))) {
+            return true;
+        }
+        return Boolean.TRUE.equals(request.getAttribute("isSuperAdmin"));
+    }
+
+    /**
+     * 数据可见范围：超级管理员返回 {@code null}（不限制组织），
+     * 其他管理员返回当前账号所属组织。
+     */
+    public static Integer getVisibleOrgId() {
+        return isSuperAdmin() ? null : getCurrentOrgId();
+    }
     
     public static boolean isDevBypass() {
         HttpServletRequest request = getCurrentRequest();

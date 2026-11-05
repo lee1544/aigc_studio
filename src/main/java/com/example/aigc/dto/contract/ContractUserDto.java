@@ -24,6 +24,12 @@ public class ContractUserDto {
     /** "admin" 或 "user" */
     private String role;
 
+    /** 会话用途：admin / creator【新增】 */
+    private String scope;
+
+    /** 是否全局超级管理员【新增】 */
+    private Boolean superAdmin;
+
     /** "active" / "disabled" / "deleted" */
     private String status;
 
@@ -52,6 +58,10 @@ public class ContractUserDto {
 
     @JsonProperty("orgName")
     private String orgName;
+
+    /** 组织状态：1 启用 / 0 禁用；组织不存在时为 null【新增】 */
+    @JsonProperty("orgStatus")
+    private Integer orgStatus;
 
     @JsonProperty("firstLogin")
     private Boolean firstLogin;

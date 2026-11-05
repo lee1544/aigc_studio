@@ -31,6 +31,14 @@ public interface UserRepository extends JpaRepository<User, Integer>, JpaSpecifi
                                       @Param("status") Integer status,
                                       Pageable pageable);
 
+    /** 超级管理员视角：不限制组织。 */
+    @Query("SELECT u FROM User u WHERE " +
+            "(:realname IS NULL OR u.realName LIKE CONCAT('%', :realname, '%')) " +
+            "AND (:status IS NULL OR u.status = :status)")
+    Page<User> searchAllByRealname(@Param("realname") String realname,
+                                   @Param("status") Integer status,
+                                   Pageable pageable);
+
     List<User> findByOrgId(Integer orgId);
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.orgId = :orgId")

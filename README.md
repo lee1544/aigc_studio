@@ -26,26 +26,51 @@ AIGC Studio 的 Java 后端服务：账号与权限（RBAC）、非计费配置�
 
 ## 功能概览
 
-- **认证**：管理员 `POST /api/admin/login`、创作者 `POST /api/auth/login`；JWT 会话隔离；`/api/auth/me`、`/api/auth/permissions` 返回当前账号与权限快照
-- **组织管理**：组织增删改查；创建组织时自动生成内置角色和初始管理员账号；删除组织级联清理用户与角色
-- **用户管理**：组织内用户增删改查、启用/禁用、角色分配、密码修改与重置（重置为 `12345678` 并标记下次登录为首次登录）
-- **角色管理**：组织内角色增删改查、角色-权限分配；内置角色（SUPER_ADMIN / ORG_ADMIN_* / NORMAL_ADMIN_*）受保护不可删除
-- **权限管理**：权限编码全局定义，仅超级管理员可启用/禁用；权限变更与用户功能权限批量调整均记录审计；权限变更自动清除用户权限缓存
+- **认证**：超级管理员 `POST /api/admin/login`、学校创作账号 `POST /api/auth/login`；JWT 会话隔离；`/api/auth/me`、`/api/auth/permissions` 返回当前账号、组织与权限快照
+- **组织管理**：仅超级管理员可创建/修改/删除组织；创建组织时在同一事务内生成**一个** `ORG_ADMIN_{orgId}` 组织创作角色（默认无任何权限），并用 `adminEmail` + 账号信息创建学校创作账号（`role=user`）绑定该角色；默认组织受保护不可删除；删除组织级联清理用户与角色
+- **用户管理**：超级管理员可跨组织管理学校创作账号；学校创作账号 `role=user`，不能登录任何管理后台
+- **角色管理**：服务端后台的角色权限只分配用户管理、权限、角色、组织管理端权限；`ORG_ADMIN_{orgId}` 为组织创作角色，其 25 项创作 feature 在客户端后台维护；`NORMAL_ADMIN_*` 已废弃，不再创建
+- **权限管理**：权限编码全局定义，仅超级管理员可启停；权限变更与用户功能权限批量调整均记录审计；权限变更自动清除用户权限缓存
 - **模型连接与预设**：服务连接 CRUD、连接检测、模型配置 CRUD（含删除标记持久化，防止被删除预设复活）
 - **Agent 配置**：canvas / comic / short-drama 三套 Agent 配置的读取与保存
 - **工作流配置**：工作流及模型 API 配置 CRUD、ComfyUI 连接检查（运行由 Node 提供）
 - **Studio Skill**：画布可用 Skill 的公共列表与管理端 CRUD
 - **系统设置**：`GET /api/public/settings` 读取平台参数，`PUT /api/admin/system-settings` 保存完整平台参数
 - **普通项目**：创作者本人项目与项目内容 CRUD
-- **内部配置快照**：`GET /api/internal/node-config`，供 Node 服务读取 Java 已保存的非计费配置（含真实密钥），独立服务令牌校验
-- **管理后台**：`/admin` 静态页面（登录 / 概览 / 组织 / 权限 / 角色 / 用户），菜单按权限显隐
+- **内部配置快照**：`GET /api/internal/node-config`、`GET /api/internal/organizations`，供 Node 服务读取非计费配置与只读组织列表，独立服务令牌校验
+- **管理后台**：服务端管理后台（Java `/admin`）与客户端管理后台均为**仅超级管理员**登录；服务端后台负责组织/用户/角色/权限/模型等管理，角色授权只展示管理端权限；客户端后台负责查看学校、管理已有账号、开通 25 项创作功能、配置模型和积分
 
 ## 数据权限模型
 
-- 数据按 `org_id` 隔离，请求上下文中的组织来自 JWT claim
-- 权限编码形如 `user:view`、`org:create`、`role:assign-permission`，由 `@RequirePermission("...")` 注解 + AOP 切面校验
-- 用户权限链路：`用户 → t_user_role → 角色 → t_role_permission → 权限`
-- 任何非计费配置变更都会 bump 配置版本（`ConfigVersion`，单行 id=1），供内部 `node-config` 快照使用
+系统仍然完全通过 RBAC 管理权限，分为“角色 → 权限码”和“数据范围”两层：
+
+### 角色层级
+
+| 角色 | 范围 | 说明 |
+|---|---|---|
+| `SUPER_ADMIN` | 全局（`org_id = NULL`） | 超级管理员：唯一的管理员账号，拥有全部启用权限，可查看和管理所有组织的数据 |
+| `ORG_ADMIN_{orgId}` | 组织 | 组织创作角色（学校创作账号共享角色）：账号 `role=user`，默认无权限，由超管分配 25 项创作 feature，只能登录创作平台 |
+| `NORMAL_ADMIN_{orgId}` | 组织 | 已废弃，不再创建/使用 |
+| `USER_FEATURES_{userId}` | 个人 | 旧创作者个人 feature 载体，仅历史兼容；绑定组织创作角色的账号不再使用 |
+
+### 初始化不变量
+
+启动时 Flyway 先执行 `V1__init.sql` 种子数据，随后 `RbacInitializer`（`RbacBootstrapService`）幂等补齐：
+
+1. 默认组织 `DEFAULT_ORG`（“默认组织”），平台级账号归属该组织；
+2. 超级管理员角色 `SUPER_ADMIN`，并分配**所有启用中**的权限（后续新增权限在下次启动时自动补齐，不会清空已有授权）；
+3. 默认超级管理员账号 `admin / admin123`（仅不存在时创建，不会重置已有密码），并绑定 `SUPER_ADMIN`；
+4. 每个组织的 `ORG_ADMIN_{orgId}` 组织创作角色（缺失时创建，默认无权限）。
+
+### 数据范围
+
+- **超级管理员**：组织、角色、用户、功能权限等列表均不限制组织，可看到全部组织的数据；可创建/修改/删除组织。
+- **学校创作账号**：`role=user`，只能访问创作平台和本人数据；不能访问 `/api/admin/**`、`/api/users/**`、`/api/roles/**`、`/api/organizations/**` 等管理接口；本人改密 `PUT /api/users/{id}/password` 例外。
+- 模型连接/模型配置、Agent/工作流/Skill、系统设置、权限码启停均为仅超级管理员可用的全局配置。
+- 创建组织时**必须**提交学校创作账号信息（`adminUsername` / `adminEmail` / `adminPassword` / `adminRealName`）；组织、`ORG_ADMIN_{orgId}` 组织创作角色、账号与角色绑定在同一事务内完成，默认不分配任何权限。
+- 权限校验链路：`用户 → t_user_role → 角色 → t_role_permission → 权限`；`@SuperAdminOnly` 负责平台级操作边界，服务层再按 `org_id` 做数据范围校验。
+- `t_user.role`（`admin` / `user`）只由 `SUPER_ADMIN` 决定；`ORG_ADMIN_*`、`NORMAL_ADMIN_*`（已废弃）与用户自建角色都保持 `user`，不能登录管理后台。
+- 任何非计费配置变更都会 bump 配置版本（`ConfigVersion`，单行 id=1），供内部 `node-config` 快照使用。
 
 ## 快速开始
 
@@ -57,11 +82,10 @@ AIGC Studio 的 Java 后端服务：账号与权限（RBAC）、非计费配置�
 CREATE DATABASE aigc_studio CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 ```
 
-新库：直接启动应用，Flyway 会自动执行 `src/main/resources/db/migration/V1__init.sql`，建表、建索引并写入种子数据，不需要再手工执行其他 SQL。
+新库初始化：直接启动应用。Flyway 会执行唯一的 `src/main/resources/db/migration/V1__init.sql`，一次建全 19 张表、索引，以及 RBAC/权限/平台设置/模型配置种子。Flyway 完成后，`RbacInitializer` 会幂等核对默认组织、超级管理员角色的全量启用权限、默认超管账号与各组织内置角色（缺失才创建，不覆盖已有配置）。
 
-老库：先备份，再启动应用。Flyway 会先建立 version 0 基线，然后执行 V1；V1 对已存在的表只做幂等补列/补索引，不删除既有数据。若老库存在重复 `username`/`email`，唯一索引会创建失败并中止迁移，需要先人工清理。
-
-V1 含 Flyway 占位符 `${tencent_tokenhub_key}` 等，mysql CLI 不会替换它们，因此**不要用 CLI 直接执行 V1 做正式初始化**；正式初始化只通过启动应用由 Flyway 执行。若确需离线执行，请先手动把占位符替换为实际值（或空串），并自行补写 `flyway_schema_history`。
+> 当前只保留 `V1__init.sql`，且 V1 面向**全新空库**：原有的 V2~V6 迁移和独立全量脚本已删除，旧库不再兼容，请重建数据库。
+> V1 含 Flyway 占位符 `${tencent_tokenhub_key}` 等，mysql CLI 不会替换它们，因此不要用 CLI 直接执行 V1；初始化只通过启动应用由 Flyway 执行。
 
 任何手工执行的 SQL（包括历史脚本）都要显式指定 utf8mb4，否则 Windows 中文环境会按 gbk 解码，报 `Data too long for column 'role_name'`：
 
@@ -69,9 +93,9 @@ V1 含 Flyway 占位符 `${tencent_tokenhub_key}` 等，mysql CLI 不会替换�
 mysql --default-character-set=utf8mb4 -u root -p aigc_studio < your-script.sql
 ```
 
-厂商密钥不写进 SQL，通过 Flyway 占位符注入：`spring.flyway.placeholders.*` 映射到环境变量 `TENCENT_TOKENHUB_KEY`、`DEEPSEEK_KEY`、`ALIYUN_BAILIAN_KEY_1`、`ALIYUN_BAILIAN_KEY_2`。`application.properties` 中默认值为空，未注入时对应模型会被置为 `enabled=0`；`application-dev.properties` / `application-prod.properties` 已填入实际 key，直接按 profile 启动即可。
+厂商密钥：通过 `spring.flyway.placeholders.*` 注入，映射到环境变量 `TENCENT_TOKENHUB_KEY`、`DEEPSEEK_KEY`、`ALIYUN_BAILIAN_KEY_1`、`ALIYUN_BAILIAN_KEY_2`。`application.properties` 中默认值为空，未注入时对应模型会被置为 `enabled=0`；`application-dev.properties` / `application-prod.properties` 已填入实际 key，直接按 profile 启动即可。
 
-> 这四个变量**只在 V1 第一次执行时生效**。如果新库已经启动过一次（V1 已记录到 `flyway_schema_history`），之后再设置环境变量不会回填数据库。此时请通过管理后台修改模型连接/模型配置，或新增一个 V2 迁移来补 key；开发环境也可以直接删库重建。
+> 这四个占位符**只在 V1 第一次执行时生效**。如果新库已经启动过一次（V1 已记录到 `flyway_schema_history`），之后再设置环境变量不会回填数据库。此时请通过管理后台修改模型连接/模型配置，或新增一个迁移来补 key；开发环境也可以直接删库重建。
 
 ### 2. 配置并启动（本地开发）
 
@@ -104,26 +128,27 @@ java -jar aigc-studio.jar --spring.profiles.active=prod
 | 管理员登录 | POST `/api/admin/login` |
 | 创作者登录 | POST `/api/auth/login` |
 
-默认超级管理员：`admin / admin123`
+默认超级管理员：`admin / admin123`（首次启动自动创建，归属默认组织；生产环境请立即修改密码）。
 
 ## 主要 API（Java 归属）
 
 > 完整接口文档（请求/响应字段、错误码、分页、权限模型、Node 占位路由）见 [`docs/API.md`](docs/API.md)。
+> 两个管理后台（均仅超管）+ 创作平台的账号与 RBAC 前端对接确认稿见 [`docs/frontend-rbac-confirmation.md`](docs/frontend-rbac-confirmation.md)。
 
 认证（免 JWT）：`POST /api/admin/login`、`POST /api/auth/login`、`POST /api/auth/register`
 
 | 模块 | 路径 | 所需权限 |
 |---|---|---|
-| 用户 | `GET/POST /api/users`，`GET/PUT/DELETE /api/users/{id}`，`/{id}/status`、`/{id}/password`、`/{id}/reset-password`、`/{id}/roles`（旧版，建议改用 `/api/admin/users`） | `user:*` |
-| 组织 | `GET/POST /api/organizations`，`GET/PUT/DELETE /api/organizations/{id}` | `org:*` |
-| 角色 | `GET/POST /api/roles`，`PUT/DELETE /api/roles/{id}`，`/{id}/permissions` | `role:*` |
-| 权限 | `GET /api/permissions`，`PUT /api/permissions/{id}/status` | `role:view` / 超管 |
-| 功能权限 | `GET /api/admin/users/{id}/permissions`，`PUT /api/admin/user-permissions`，`GET /api/admin/permission-audits` | `role:*` |
-| 模型连接 | `GET/POST/PUT/DELETE /api/admin/model-connections[/{id}]`，`POST /{id}/check`，`GET /model-connection-checks` | 管理员 |
-| 模型预设 | `GET/POST /api/admin/model-configs`，`PUT/DELETE /api/admin/model-configs/{feature}/{model}` | 管理员 |
-| Agent 配置 | `GET/PUT /api/agent/{canvas\|comic\|short-drama}/config` | 管理员 |
-| 工作流配置 | `GET/POST/PUT/DELETE /api/admin/workflows[/{id}]`，`POST /{id}/check` | 管理员 |
-| Studio Skill | `GET /api/studio-skills`，`GET/POST/PUT/DELETE /api/admin/studio-skills[/{id}]` | 公开 / 管理员 |
+| 用户 | `GET/POST /api/users`，`GET/PUT/DELETE /api/users/{id}`，`/{id}/status`、`/{id}/password`、`/{id}/reset-password`、`/{id}/roles`（旧版，建议改用 `/api/admin/users`） | `user:*`（仅超管；学校账号仅本人 `/{id}/password`） |
+| 组织 | `GET/POST /api/organizations`，`GET/PUT/DELETE /api/organizations/{id}` | `org:*`；创建/修改/删除仅超管 |
+| 角色 | `GET/POST /api/roles`，`PUT/DELETE /api/roles/{id}`，`/{id}/permissions`、`/{id}/permission-snapshot` | `role:*`（仅超管） |
+| 权限 | `GET /api/permissions`（`scope=feature` 返回 25 项 feature），`PUT /api/permissions/{id}/status` | `role:view` / `role:update`（仅超管） |
+| 功能权限 | `GET /api/admin/users/{id}/permissions`，`PUT /api/admin/user-permissions`，`GET /api/admin/permission-audits` | `user:view` / `user:update`（仅超管；组织创作角色的功能在角色权限中维护） |
+| 模型连接 | `GET/POST/PUT/DELETE /api/admin/model-connections[/{id}]`，`POST /{id}/check`，`GET /model-connection-checks` | 超级管理员 |
+| 模型预设 | `GET/POST /api/admin/model-configs`，`PUT/DELETE /api/admin/model-configs/{feature}/{model}` | 超级管理员 |
+| Agent 配置 | `GET/PUT /api/agent/{canvas\|comic\|short-drama}/config` | 读：公开/登录；写：超级管理员 |
+| 工作流配置 | `GET/POST/PUT/DELETE /api/admin/workflows[/{id}]`，`POST /{id}/check` | 超级管理员 |
+| Studio Skill | `GET /api/studio-skills`，`GET/POST/PUT/DELETE /api/admin/studio-skills[/{id}]` | 公开 / 超级管理员 |
 | 系统设置 | `GET /api/public/settings`，`GET /api/admin/apis`，`PUT /api/admin/system-settings` | 公开 / 管理员 |
 | 项目 | `GET/POST /api/projects`，`GET/DELETE /api/projects/{id}`，`GET/PUT /{id}/content`，`PATCH /{id}/module` | 会话 |
 | 内部配置快照 | `GET /api/internal/node-config` | 服务令牌 `NODE_CONFIG_READ_TOKEN` |
@@ -158,7 +183,7 @@ src/main/resources
 ├── application.properties          # 环境变量占位，不含密钥
 ├── application-dev.properties      # 本地开发默认值（含厂商 key，Git 忽略）
 ├── application-prod.properties     # 正式环境默认值（含厂商 key，Git 忽略）
-├── db/migration/V1__init.sql       # Flyway 版本化迁移（新库建全表，老库幂等补列/索引）
+├── db/migration/V1__init.sql       # 唯一初始化迁移：全新库建全表 + RBAC/权限/平台设置/模型配置种子
 └── static
     ├── admin/                      # 管理后台静态页面与资源
     └── docs/                       # 移植契约、路由索引、OpenAPI、前端联调文档

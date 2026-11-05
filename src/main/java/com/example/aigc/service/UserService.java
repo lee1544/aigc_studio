@@ -4,14 +4,16 @@ import com.example.aigc.constant.SystemConstant;
 import com.example.aigc.dto.CreateUserRequest;
 import com.example.aigc.dto.contract.CreateUserContractRequest;
 import com.example.aigc.dto.contract.UpdateUserContractRequest;
+import com.example.aigc.entity.Organization;
 import com.example.aigc.entity.Role;
 import com.example.aigc.entity.User;
 import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
 import com.example.aigc.exception.ConflictException;
+import com.example.aigc.exception.ForbiddenException;
 import com.example.aigc.exception.NotFoundException;
-import com.example.aigc.exception.UnauthorizedException;
 import com.example.aigc.filter.UserSessionCache;
+import com.example.aigc.repository.OrganizationRepository;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.repository.UserRoleRepository;
@@ -26,11 +28,18 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
+import java.util.Set;
 
+/**
+ * 用户服务。
+ *
+ * <p>数据范围：超级管理员可管理全部组织的账号；组织管理员只能管理本组织的账号。
+ * 角色分配同样受组织约束：组织管理员不能在跨组织账号上操作，也不能分配全局角色。
+ */
 @Service
 public class UserService {
 
@@ -50,6 +59,9 @@ public class UserService {
     private OrganizationService organizationService;
 
     @Autowired
+    private OrganizationRepository organizationRepository;
+
+    @Autowired
     private UserSessionCache userSessionCache;
 
     @Autowired
@@ -60,27 +72,73 @@ public class UserService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException("用户名已存在");
         }
-        //组织管理员新增用户
+        if (currentOrgId == null || !organizationRepository.existsById(currentOrgId)) {
+            throw new BusinessException("组织不存在");
+        }
+        // 组织管理员新增用户：固定归属当前组织，角色为创作者
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRealName(request.getRealName());
+        user.setName(request.getRealName());
+        user.setRole("user");
         user.setOrgId(currentOrgId);
         user.setStatus(1);
+        user.setTokenVersion(0);
+        user.setPermissionVersion(0);
+        user.setAccountSource("组织管理员创建");
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         return userRepository.save(user);
     }
 
+    /**
+     * 用户分页列表。
+     *
+     * @param orgId 数据范围：null 表示全部组织（超级管理员），否则只查该组织
+     */
     public Page<User> getUsersByOrgId(Integer orgId, String realName, Integer status,
                                       Pageable pageable, boolean includeRoles) {
-        Page<User> userPage = userRepository.findByOrgIdAndRealname(orgId, realName, status, pageable);
-        String orgName = organizationService.getOrgNameById(orgId);
-        userPage.forEach(user -> user.setOrgName(orgName));
+        Page<User> userPage = (orgId == null)
+                ? userRepository.searchAllByRealname(realName, status, pageable)
+                : userRepository.findByOrgIdAndRealname(orgId, realName, status, pageable);
+        if (orgId == null) {
+            // 超级管理员视角：跨组织列表需要逐人回填组织名称
+            fillOrgNames(userPage.getContent());
+        } else {
+            String orgName = organizationService.getOrgNameById(orgId);
+            userPage.forEach(user -> user.setOrgName(orgName));
+        }
         if (includeRoles) {
             fillRoleSummaries(userPage.getContent());
         }
         return userPage;
+    }
+
+    /** 批量补齐组织名称，避免逐条查询。 */
+    private void fillOrgNames(List<User> users) {
+        if (users == null || users.isEmpty()) {
+            return;
+        }
+        Set<Integer> orgIds = new LinkedHashSet<>();
+        for (User user : users) {
+            if (user.getOrgId() != null && user.getOrgId() > 0) {
+                orgIds.add(user.getOrgId());
+            }
+        }
+        Map<Integer, String> orgNames = new HashMap<>();
+        if (!orgIds.isEmpty()) {
+            for (Organization org : organizationRepository.findAllById(orgIds)) {
+                orgNames.put(org.getId(), org.getOrgName());
+            }
+        }
+        for (User user : users) {
+            if (user.getOrgId() == null || user.getOrgId() <= 0) {
+                user.setOrgName("未分配组织");
+            } else {
+                user.setOrgName(orgNames.getOrDefault(user.getOrgId(), "未知组织"));
+            }
+        }
     }
 
     private void fillRoleSummaries(List<User> users) {
@@ -130,8 +188,7 @@ public class UserService {
 
     public User getUsersById(Integer userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new NotFoundException("用户不存在"));
-        String orgName = organizationService.getOrgNameById(user.getOrgId());
-        user.setOrgName(orgName);
+        user.setOrgName(organizationService.getOrgNameById(user.getOrgId()));
         return user;
     }
 
@@ -218,16 +275,46 @@ public class UserService {
         userSessionCache.evict(userId);
     }
 
+    /**
+     * 整体替换用户角色。
+     *
+     * @param scopeOrgId 调用方数据范围：null 表示超级管理员（可跨组织），否则只能是该组织
+     */
     @Transactional
-    public void assignRolesToUser(Integer userId, Integer[] roleIds, Integer currentOrgId) {
+    public void assignRolesToUser(Integer userId, Integer[] roleIds, Integer scopeOrgId) {
+        User target = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("用户不存在"));
+        requireUserInScope(target, scopeOrgId);
+
         userRoleRepository.deleteByUserId(userId);
+        boolean adminRole = false;
         if (roleIds != null) {
+            Set<Integer> distinctRoleIds = new LinkedHashSet<>();
             for (Integer roleId : roleIds) {
+                if (roleId != null) {
+                    distinctRoleIds.add(roleId);
+                }
+            }
+            for (Integer roleId : distinctRoleIds) {
                 Role role = roleRepository.findById(roleId)
                         .orElseThrow(() -> new NotFoundException("角色不存在"));
-                // org_id 为 NULL 表示全局角色（如超级管理员），任何组织都可以分配
-                if (role.getOrgId() != null && !Objects.equals(role.getOrgId(), currentOrgId)) {
-                    throw new UnauthorizedException("角色不属于当前组织");
+                if (SystemConstant.isAdminRoleCode(role.getRoleCode())) {
+                    adminRole = true;
+                }
+                boolean globalRole = role.getOrgId() == null;
+                if (globalRole) {
+                    // 全局角色只有超级管理员角色允许分配，且调用方必须是超级管理员
+                    if (!SystemConstant.SUPER_ADMIN_ROLE_CODE.equals(role.getRoleCode())) {
+                        throw new BusinessException("该角色不支持分配: " + role.getRoleCode());
+                    }
+                    if (scopeOrgId != null) {
+                        throw new ForbiddenException("超级管理员角色仅限超级管理员分配");
+                    }
+                    if (!"admin".equals(target.getRole())) {
+                        throw new BusinessException("仅管理员账号可以分配超级管理员角色");
+                    }
+                } else if (!Objects.equals(role.getOrgId(), target.getOrgId())) {
+                    throw new BusinessException("角色不属于该用户所在组织");
                 }
                 UserRole userRole = new UserRole();
                 userRole.setUserId(userId);
@@ -235,31 +322,47 @@ public class UserService {
                 userRoleRepository.save(userRole);
             }
         }
+        // 只有 SUPER_ADMIN 会切换账号类型；ORG_ADMIN_*（组织创作角色）、
+        // NORMAL_ADMIN_*（已废弃）与自建角色只增加权限集合，账号仍保持 user。
+        if (SystemConstant.DEFAULT_ADMIN_USERNAME.equals(target.getUsername()) && !adminRole) {
+            throw new BusinessException("默认超级管理员必须保留超级管理员角色");
+        }
+        String expectedRole = adminRole ? "admin" : "user";
+        if (!expectedRole.equals(target.getRole())) {
+            target.setRole(expectedRole);
+            target.setUpdateTime(LocalDateTime.now());
+            userRepository.save(target);
+        }
         // 角色变更后立即刷新该用户的会话权限
         userSessionCache.evict(userId);
     }
 
     // ==================== 契约：/api/admin/users 管理 ====================
 
-    /** POST /api/admin/users：创建创作者账号，可选 features。 */
+    /** POST /api/admin/users：创建创作者账号，归属调用方组织，可选 features。 */
     @Transactional
-    public User createCreator(CreateUserContractRequest req) {
+    public User createCreator(CreateUserContractRequest req, Integer orgId) {
         if (req.getEmail() == null || req.getEmail().isEmpty()) {
             throw new BusinessException("email 不能为空");
         }
         if (userRepository.existsByEmail(req.getEmail())) {
             throw new ConflictException("邮箱已存在");
         }
+        if (orgId == null || !organizationRepository.existsById(orgId)) {
+            throw new BusinessException("组织不存在");
+        }
         User user = new User();
         user.setUsername(req.getEmail());
         user.setEmail(req.getEmail());
         user.setName(req.getName());
+        user.setRealName(req.getName());
         user.setPassword(passwordEncoder.encode(req.getPassword()));
         user.setRole("user");
         user.setStatus(1);
         user.setTokenVersion(0);
+        user.setPermissionVersion(0);
         user.setAccountSource("管理员创建");
-        user.setOrgId(0);
+        user.setOrgId(orgId);
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         user = userRepository.save(user);
@@ -271,11 +374,12 @@ public class UserService {
 
     /** PATCH /api/admin/users/{id}：未传字段沿用；密码/邮箱/状态修改撤销旧 token。 */
     @Transactional
-    public User patchCreator(Integer userId, UpdateUserContractRequest req) {
-        User user = requireCreator(userId);
+    public User patchCreator(Integer userId, UpdateUserContractRequest req, Integer scopeOrgId) {
+        User user = requireCreator(userId, scopeOrgId);
         boolean revoke = false;
         if (req.getName() != null) {
             user.setName(req.getName());
+            user.setRealName(req.getName());
         }
         if (req.getEmail() != null && !req.getEmail().equals(user.getEmail())) {
             if (userRepository.existsByEmail(req.getEmail())) {
@@ -314,8 +418,8 @@ public class UserService {
 
     /** PATCH /api/admin/users/{id}/status：启用或禁用。 */
     @Transactional
-    public User patchCreatorStatus(Integer userId, String status) {
-        User user = requireCreator(userId);
+    public User patchCreatorStatus(Integer userId, String status, Integer scopeOrgId) {
+        User user = requireCreator(userId, scopeOrgId);
         Integer s = com.example.aigc.dto.contract.UserMapper.statusToInt(status);
         if (s == null || s < 0) {
             throw new BusinessException("状态只能为 active/disabled");
@@ -330,8 +434,8 @@ public class UserService {
 
     /** DELETE /api/admin/users/{id}：软删除，保留历史。 */
     @Transactional
-    public void softDeleteCreator(Integer userId) {
-        User user = requireCreator(userId);
+    public void softDeleteCreator(Integer userId, Integer scopeOrgId) {
+        User user = requireCreator(userId, scopeOrgId);
         user.setStatus(-1);
         user.setTokenVersion(user.getTokenVersion() + 1);
         user.setUpdateTime(LocalDateTime.now());
@@ -339,12 +443,27 @@ public class UserService {
         userSessionCache.evict(user.getId());
     }
 
-    private User requireCreator(Integer userId) {
+    private User requireCreator(Integer userId, Integer scopeOrgId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("用户不存在"));
         if (!"user".equals(user.getRole())) {
             throw new BusinessException("仅可操作创作者账号");
         }
+        requireUserInScope(user, scopeOrgId);
+        return user;
+    }
+
+    /** 组织管理员只能操作本组织账号；超级管理员（scopeOrgId=null）不受限制。 */
+    private void requireUserInScope(User user, Integer scopeOrgId) {
+        if (scopeOrgId != null && !Objects.equals(scopeOrgId, user.getOrgId())) {
+            throw new NotFoundException("用户不存在");
+        }
+    }
+
+    /** 校验操作者与目标账号同组织（供控制器复用）。 */
+    public User requireUserAccessible(Integer userId, Integer scopeOrgId) {
+        User user = getUsersById(userId);
+        requireUserInScope(user, scopeOrgId);
         return user;
     }
 }

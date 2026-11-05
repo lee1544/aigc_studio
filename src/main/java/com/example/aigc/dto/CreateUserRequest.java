@@ -18,4 +18,10 @@ public class CreateUserRequest {
 
     @NotBlank(message = "姓名不能为空")
     private String realName;
+
+    /**
+     * 目标组织。仅超级管理员在管理后台按组织筛选后创建用户时使用；
+     * 组织管理员传入会被忽略，始终落到当前组织。
+     */
+    private Integer orgId;
 }

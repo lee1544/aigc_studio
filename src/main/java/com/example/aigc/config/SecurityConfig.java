@@ -80,8 +80,8 @@ public class SecurityConfig {
                         "/api/digital-human-media/*"
                 ).permitAll()
                 .antMatchers("/api/auth/**").permitAll()
-                // 内部配置快照：由 NODE_CONFIG_READ_TOKEN 在控制器内自行鉴权，不能走用户会话
-                .antMatchers("/api/internal/node-config").permitAll()
+                // 内部配置/组织列表：由 NODE_CONFIG_READ_TOKEN 在控制器内自行鉴权，不能走用户会话
+                .antMatchers("/api/internal/node-config", "/api/internal/organizations").permitAll()
                 .anyRequest().authenticated()
                 .and()
                 // Spring Security 自身的异常不走 GlobalExceptionHandler，这里统一返回 JSON 响应体

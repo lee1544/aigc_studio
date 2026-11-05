@@ -19,6 +19,3 @@ application-*.properties
 *.log
 
 # 数据库迁移脚本（db/migration/V*.sql）纳入版本控制；厂商密钥通过环境变量/Flyway 占位符注入
-
-# 历史本地全量脚本含真实厂商 API Key，禁止提交；新库/老库统一由 Flyway V1 初始化
-src/main/resources/sql/aigc-studio-full-init.sql

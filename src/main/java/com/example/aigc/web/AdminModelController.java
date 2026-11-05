@@ -16,6 +16,7 @@ import java.util.List;
 /**
  * 管理端模型连接与配置：/api/admin/model-connections、/api/admin/model-configs、
  * /api/admin/model-connection-checks。
+ * <p>平台级全局配置，管理员（含组织管理员）均可维护；数据本身不按组织隔离。
  */
 @RestController
 @RequestMapping("/api/admin")

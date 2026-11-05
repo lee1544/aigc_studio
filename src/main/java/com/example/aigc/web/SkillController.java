@@ -10,7 +10,10 @@ import org.springframework.web.bind.annotation.*;
 import javax.validation.Valid;
 import java.util.List;
 
-/** Skill 管理 /api/admin/studio-skills 与公开 /api/studio-skills。 */
+/**
+ * Skill 管理 /api/admin/studio-skills 与公开 /api/studio-skills。
+ * <p>公开列表保持开放；管理端 CRUD 属于平台级全局配置，管理员（含组织管理员）均可维护。
+ */
 @RestController
 public class SkillController {
 

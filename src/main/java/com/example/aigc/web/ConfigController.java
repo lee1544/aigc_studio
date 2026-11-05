@@ -12,6 +12,7 @@ import java.util.Map;
 
 /**
  * Java 归属的配置接口：Agent 配置（J05）与 admin 工作流 CRUD（J06）。
+ * <p>Agent/工作流属于平台级全局配置，管理员（含组织管理员）均可维护。
  * 执行类路径（text-studio/workflows run/music/canvas/digital-humans/autodl/模型目录）
  * 由 NodeOwnedController 统一返回 503，归 Node 服务。
  */

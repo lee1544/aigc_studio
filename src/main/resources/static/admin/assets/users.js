@@ -9,6 +9,8 @@
     size: 10,
     realname: '',
     status: '',
+    orgId: '',
+    orgs: [],
     items: [],
     pageData: null,
     roles: [],
@@ -38,6 +40,20 @@
   function init() {
     AdminPage.bindModalClose();
     bindEvents();
+    if (AdminPage.isSuperAdmin()) {
+      loadOrgOptions();
+    } else {
+      // 组织管理员只能看到本组织，隐藏组织筛选并把筛选栏恢复为三列
+      var orgField = el('orgFilterField');
+      if (orgField) {
+        orgField.hidden = true;
+      }
+      var form = el('filterForm');
+      if (form) {
+        form.classList.remove('filters-four');
+        form.classList.add('filters-three');
+      }
+    }
     if (canRoleView) {
       loadRoles();
     }
@@ -55,11 +71,23 @@
     el('resetFilterBtn').addEventListener('click', function () {
       el('filterRealname').value = '';
       el('statusFilter').value = '';
+      if (el('orgFilter')) {
+        el('orgFilter').value = '';
+      }
       state.realname = '';
       state.status = '';
+      state.orgId = '';
       state.page = 0;
       loadList();
     });
+    var orgFilter = el('orgFilter');
+    if (orgFilter) {
+      orgFilter.addEventListener('change', function () {
+        state.orgId = orgFilter.value;
+        state.page = 0;
+        loadList();
+      });
+    }
     el('refreshBtn').addEventListener('click', function () {
       if (canRoleView) {
         loadRoles();
@@ -112,6 +140,24 @@
     });
   }
 
+  /** 超级管理员可按组织筛选：加载全部组织填充下拉框。 */
+  async function loadOrgOptions() {
+    try {
+      var result = await AIGCS.api('/api/organizations?page=0&size=500');
+      state.orgs = result && Array.isArray(result.items) ? result.items : [];
+      var select = el('orgFilter');
+      if (!select) {
+        return;
+      }
+      select.innerHTML = '<option value="">全部组织</option>' + state.orgs.map(function (org) {
+        return '<option value="' + org.id + '">'
+          + AIGCS.escapeHtml(org.orgName) + '（' + AIGCS.escapeHtml(org.orgCode) + '）</option>';
+      }).join('');
+    } catch (e) {
+      AIGCS.toast('组织列表加载失败：' + (e.message || '未知错误'), 'error');
+    }
+  }
+
   async function loadRoles() {
     try {
       var roles = await AIGCS.api('/api/roles');
@@ -131,6 +177,9 @@
     }
     if (state.status !== '') {
       query.set('status', state.status);
+    }
+    if (state.orgId) {
+      query.set('orgId', state.orgId);
     }
 
     try {
@@ -196,7 +245,11 @@
 
       return '<tr>'
         + '<td><span class="code-pill">' + AIGCS.escapeHtml(user.username) + '</span>'
-        + (isSelf ? ' <span class="self-tag">当前</span>' : '') + '</td>'
+        + (isSelf ? ' <span class="self-tag">当前</span>' : '')
+        + (AdminPage.isSuperAdmin()
+          ? ' <span class="muted-value">' + AIGCS.escapeHtml(user.orgName || '未分配组织') + '</span>'
+          : '')
+        + '</td>'
         + '<td><strong>' + AIGCS.escapeHtml(user.realName || '\u2014') + '</strong></td>'
         + '<td>' + renderRoleBadges(user) + '</td>'
         + '<td>' + statusBadge(user.status) + '</td>'
@@ -206,8 +259,16 @@
         + '</tr>';
     }).join('');
 
+    var orgLabel = '';
+    if (state.orgId) {
+      var selectedOrg = state.orgs.filter(function (org) {
+        return String(org.id) === String(state.orgId);
+      })[0];
+      orgLabel = '，组织：' + (selectedOrg ? selectedOrg.orgName : ('#' + state.orgId));
+    }
     el('listSummary').textContent = '共 ' + state.pageData.totalElements + ' 个用户'
-      + (state.realname ? '，姓名：' + state.realname : '');
+      + (state.realname ? '，姓名：' + state.realname : '')
+      + orgLabel;
   }
 
   function renderRoleBadges(user) {
@@ -267,7 +328,14 @@
     el('passwordField').hidden = false;
     el('realNameField').classList.remove('field-full');
     el('userModalTitle').textContent = '新建用户';
-    el('userModalHint').textContent = '新用户创建后不会自动分配角色，请在用户列表中为其分配角色。';
+    var hint = '新用户创建后不会自动分配角色，请在用户列表中为其分配角色。';
+    if (AdminPage.isSuperAdmin() && state.orgId) {
+      var selectedOrg = state.orgs.filter(function (org) {
+        return String(org.id) === String(state.orgId);
+      })[0];
+      hint = '新用户将创建到“' + (selectedOrg ? selectedOrg.orgName : ('#' + state.orgId)) + '”。' + hint;
+    }
+    el('userModalHint').textContent = hint;
     el('userSubmitBtn').textContent = '创建用户';
     AdminPage.openModal('userModal');
   }
@@ -314,6 +382,10 @@
         return;
       }
       body = { username: username, password: password, realName: realName };
+      // 超级管理员按组织筛选时，把新用户建到所选组织
+      if (AdminPage.isSuperAdmin() && state.orgId) {
+        body.orgId = Number(state.orgId);
+      }
     }
 
     var button = el('userSubmitBtn');
@@ -333,6 +405,24 @@
     } finally {
       AIGCS.setButtonLoading(button, false);
     }
+  }
+
+  /**
+   * 角色是否可分配给该用户：
+   * 组织角色只能用于同组织账号；全局角色仅超级管理员角色可分配，且目标必须是管理员账号。
+   */
+  function isRoleAssignableTo(role, user) {
+    var code = role.roleCode || '';
+    if (code.indexOf('USER_FEATURES_') === 0) {
+      return false;
+    }
+    if (code === 'SUPER_ADMIN') {
+      return AdminPage.isSuperAdmin() && user.role === 'admin';
+    }
+    if (role.orgId === null || typeof role.orgId === 'undefined') {
+      return false;
+    }
+    return String(role.orgId) === String(user.orgId);
   }
 
   async function openRoles(user) {
@@ -359,12 +449,16 @@
       selected[id] = true;
     });
 
-    if (state.roles.length === 0) {
-      el('userRoleOptions').innerHTML = '<div class="empty-inline">当前组织没有可分配的角色。</div>';
+    var assignable = state.roles.filter(function (role) {
+      return isRoleAssignableTo(role, user);
+    });
+
+    if (assignable.length === 0) {
+      el('userRoleOptions').innerHTML = '<div class="empty-inline">该账号所在组织没有可分配的角色。</div>';
       return;
     }
 
-    el('userRoleOptions').innerHTML = state.roles.map(function (role) {
+    el('userRoleOptions').innerHTML = assignable.map(function (role) {
       return '<label class="check-item">'
         + '<input type="checkbox" value="' + role.id + '"' + (selected[role.id] ? ' checked' : '') + '>'
         + '<span class="check-item-body">'

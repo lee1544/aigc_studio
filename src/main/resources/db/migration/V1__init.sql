@@ -1,17 +1,19 @@
--- AIGC Studio 数据库初始化 V1（Flyway 版本化迁移 · 幂等）
--- 说明：由 Flyway 在启动时执行。
---       新库：下面的 CREATE TABLE 一次性建全表 + 索引，再写入种子数据。
---       老库：CREATE TABLE 遇到已存在的表自动跳过，随后“老库结构收敛”段幂等补列/补索引，
---             最后执行种子数据；不删除、不重命名既有对象。
---       后续表结构/数据演进请新增 V2__xxx.sql、V3__xxx.sql，禁止修改本文件。
--- 范围：RBAC 基础表 + 账号功能权限审计 + 模型连接/配置 + Agent/工作流/Skill/系统设置 + 普通项目；
---       不含积分/定价/报价/运行记录等表（由 Node 服务在自家 SQLite 维护，J01 边界）。
--- 密钥：厂商 API Key 不写死在本文件，使用 Flyway 占位符，由环境变量注入：
---       TENCENT_TOKENHUB_KEY / DEEPSEEK_KEY / ALIYUN_BAILIAN_KEY_1 / ALIYUN_BAILIAN_KEY_2
---       未注入时对应模型会被置为 enabled=0，避免“启用但无密钥”的坏状态。
+-- AIGC Studio 数据库初始化 V1（唯一版本 · 全新库专用）
+-- 本文件已合并原 V1~V6 的全部最终结构与数据规则：
+--   * 19 张表与索引；
+--   * RBAC 种子：默认组织、SUPER_ADMIN、admin、默认组织内置角色；
+--   * 40 项权限（15 项管理权限 + 25 项 feature）；
+--   * 平台设置/配置版本初始行；
+--   * 模型连接与模型预设。
+--
+-- 仅用于全新空库；旧库不再兼容，请重建数据库。
+-- 厂商密钥通过 Flyway 占位符注入（环境变量）：
+--   TENCENT_TOKENHUB_KEY / DEEPSEEK_KEY / ALIYUN_BAILIAN_KEY_1 / ALIYUN_BAILIAN_KEY_2
+--   未注入时对应模型会被置为 enabled=0。
+SET NAMES utf8mb4;
 
 -- ===== 1. RBAC 基础表 =====
-CREATE TABLE IF NOT EXISTS t_organization (
+CREATE TABLE t_organization (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     org_code VARCHAR(50) NOT NULL,
     org_name VARCHAR(100) NOT NULL,
@@ -22,7 +24,7 @@ CREATE TABLE IF NOT EXISTS t_organization (
     UNIQUE KEY uk_org_code (org_code)
 );
 
-CREATE TABLE IF NOT EXISTS t_user (
+CREATE TABLE t_user (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL,
     password VARCHAR(255) NOT NULL,
@@ -43,19 +45,20 @@ CREATE TABLE IF NOT EXISTS t_user (
     UNIQUE KEY uk_t_user_email (email)
 );
 
-CREATE TABLE IF NOT EXISTS t_role (
+CREATE TABLE t_role (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     role_code VARCHAR(50) NOT NULL,
     role_name VARCHAR(50) NOT NULL,
     description VARCHAR(255) NULL,
     org_id INT NULL,
+    permission_version INT NOT NULL DEFAULT 0,
     status INT NULL,
     create_time DATETIME NULL,
     update_time DATETIME NULL,
     UNIQUE KEY uk_role_code (role_code)
 );
 
-CREATE TABLE IF NOT EXISTS t_permission (
+CREATE TABLE t_permission (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     permission_code VARCHAR(100) NOT NULL,
     permission_name VARCHAR(100) NOT NULL,
@@ -65,14 +68,14 @@ CREATE TABLE IF NOT EXISTS t_permission (
     UNIQUE KEY uk_permission_code (permission_code)
 );
 
-CREATE TABLE IF NOT EXISTS t_role_permission (
+CREATE TABLE t_role_permission (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     role_id INT NOT NULL,
     permission_id INT NOT NULL,
     UNIQUE KEY uk_role_perm (role_id, permission_id)
 );
 
-CREATE TABLE IF NOT EXISTS t_user_role (
+CREATE TABLE t_user_role (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     role_id INT NOT NULL,
@@ -80,7 +83,7 @@ CREATE TABLE IF NOT EXISTS t_user_role (
 );
 
 -- ===== 2. 账号功能权限审计表 =====
-CREATE TABLE IF NOT EXISTS permission_audits (
+CREATE TABLE permission_audits (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
     operator_id INT NOT NULL,
     user_id INT NOT NULL,
@@ -92,7 +95,7 @@ CREATE TABLE IF NOT EXISTS permission_audits (
 );
 
 -- ===== 3. 模型连接与配置 =====
-CREATE TABLE IF NOT EXISTS model_connections (
+CREATE TABLE model_connections (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     provider VARCHAR(64) NOT NULL,
@@ -100,7 +103,7 @@ CREATE TABLE IF NOT EXISTS model_connections (
     api_key TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS model_configs (
+CREATE TABLE model_configs (
     feature VARCHAR(64) NOT NULL,
     model VARCHAR(128) NOT NULL,
     provider VARCHAR(64) NOT NULL,
@@ -114,13 +117,13 @@ CREATE TABLE IF NOT EXISTS model_configs (
     PRIMARY KEY (feature, model)
 );
 
-CREATE TABLE IF NOT EXISTS deleted_model_configs (
+CREATE TABLE deleted_model_configs (
     feature VARCHAR(64) NOT NULL,
     model VARCHAR(128) NOT NULL,
     PRIMARY KEY (feature, model)
 );
 
-CREATE TABLE IF NOT EXISTS model_connection_checks (
+CREATE TABLE model_connection_checks (
     connection_id VARCHAR(64) NOT NULL PRIMARY KEY,
     checked_at DATETIME NOT NULL,
     status VARCHAR(16) NOT NULL,
@@ -129,20 +132,20 @@ CREATE TABLE IF NOT EXISTS model_connection_checks (
 );
 
 -- ===== 4. Agent 配置 =====
-CREATE TABLE IF NOT EXISTS agent_step_models (
+CREATE TABLE agent_step_models (
     agent VARCHAR(32) NOT NULL,
     step VARCHAR(32) NOT NULL,
     model VARCHAR(128) NOT NULL,
     PRIMARY KEY (agent, step)
 );
 
-CREATE TABLE IF NOT EXISTS agent_system_prompts (
+CREATE TABLE agent_system_prompts (
     agent VARCHAR(32) NOT NULL PRIMARY KEY,
     system_prompt TEXT NOT NULL
 );
 
 -- ===== 5. 工作流配置（运行/任务归 Node） =====
-CREATE TABLE IF NOT EXISTS comfy_workflows (
+CREATE TABLE comfy_workflows (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT NOT NULL,
@@ -161,7 +164,7 @@ CREATE TABLE IF NOT EXISTS comfy_workflows (
 );
 
 -- ===== 6. Skill 模板 =====
-CREATE TABLE IF NOT EXISTS studio_skills (
+CREATE TABLE studio_skills (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT NOT NULL,
@@ -172,14 +175,14 @@ CREATE TABLE IF NOT EXISTS studio_skills (
 );
 
 -- ===== 7. 系统设置（不含 features 平台开关） =====
-CREATE TABLE IF NOT EXISTS system_settings (
+CREATE TABLE system_settings (
     id INT NOT NULL PRIMARY KEY,
     data TEXT NOT NULL,
     CHECK (id = 1)
 );
 
 -- ===== 8. 配置版本（内部 node-config 快照用） =====
-CREATE TABLE IF NOT EXISTS config_versions (
+CREATE TABLE config_versions (
     id INT NOT NULL PRIMARY KEY,
     version INT NOT NULL DEFAULT 1,
     updated_at DATETIME NOT NULL,
@@ -187,7 +190,7 @@ CREATE TABLE IF NOT EXISTS config_versions (
 );
 
 -- ===== 9. 普通项目 =====
-CREATE TABLE IF NOT EXISTS projects (
+CREATE TABLE projects (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id INT NULL,
     title VARCHAR(100) NULL,
@@ -196,10 +199,10 @@ CREATE TABLE IF NOT EXISTS projects (
     duration INT NULL,
     status VARCHAR(16) NULL DEFAULT 'draft',
     updated_at DATETIME NULL,
-    module VARCHAR(16) NOT NULL DEFAULT 'script'
+    module VARCHAR(64) NOT NULL DEFAULT 'script'
 );
 
-CREATE TABLE IF NOT EXISTS project_contents (
+CREATE TABLE project_contents (
     project_id INT NOT NULL PRIMARY KEY,
     script TEXT NOT NULL,
     scenes TEXT NOT NULL,
@@ -207,101 +210,9 @@ CREATE TABLE IF NOT EXISTS project_contents (
     media TEXT NOT NULL
 );
 
--- ===== 9.5 老库结构收敛（幂等；新库全部命中“已存在”，自动跳过） =====
--- 仅对“表已存在但列/索引落后”的老库生效；新库由上面的 CREATE TABLE 一次性建全。
--- 执行前请确认没有重复键数据，否则下面的唯一索引会创建失败并中止迁移：
---   SELECT username, COUNT(*) FROM t_user GROUP BY username HAVING COUNT(*) > 1;
---   SELECT email, COUNT(*) FROM t_user WHERE email IS NOT NULL AND email <> ''
---     GROUP BY email HAVING COUNT(*) > 1;
--- 若存在重复，请先人工合并/清理，再启动应用。
-
--- t_user：前端契约与权限版本新增列
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'email');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN email VARCHAR(254) NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'phone');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN phone VARCHAR(32) NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'role');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT ''user''', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'token_version');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN token_version INT NOT NULL DEFAULT 0', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'permission_version');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN permission_version INT NOT NULL DEFAULT 0', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'account_source');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN account_source VARCHAR(32) NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 't_user' AND column_name = 'name');
-SET @sql = IF(@c = 0, 'ALTER TABLE t_user ADD COLUMN name VARCHAR(80) NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- model_configs：V1 种子 INSERT 会写 connection_id，老表缺列时先补
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'model_configs' AND column_name = 'connection_id');
-SET @sql = IF(@c = 0, 'ALTER TABLE model_configs ADD COLUMN connection_id VARCHAR(64) NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- projects / project_contents：后续版本新增列
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'projects' AND column_name = 'module');
-SET @sql = IF(@c = 0, 'ALTER TABLE projects ADD COLUMN module VARCHAR(16) NOT NULL DEFAULT ''script''', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'project_contents' AND column_name = 'media');
-SET @sql = IF(@c = 0, 'ALTER TABLE project_contents ADD COLUMN media TEXT NOT NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-UPDATE project_contents SET media = '{}' WHERE media = '' AND @c = 0;
-
--- comfy_workflows：后续版本新增列
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'comfy_workflows' AND column_name = 'provider');
-SET @sql = IF(@c = 0, 'ALTER TABLE comfy_workflows ADD COLUMN provider VARCHAR(32) NOT NULL DEFAULT ''comfyui''', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'comfy_workflows' AND column_name = 'remote_workflow_id');
-SET @sql = IF(@c = 0, 'ALTER TABLE comfy_workflows ADD COLUMN remote_workflow_id VARCHAR(64) NOT NULL DEFAULT ''''', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'comfy_workflows' AND column_name = 'purpose');
-SET @sql = IF(@c = 0, 'ALTER TABLE comfy_workflows ADD COLUMN purpose VARCHAR(32) NOT NULL DEFAULT ''general''', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @c = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'comfy_workflows' AND column_name = 'media_bindings');
-SET @sql = IF(@c = 0, 'ALTER TABLE comfy_workflows ADD COLUMN media_bindings TEXT NOT NULL', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-UPDATE comfy_workflows SET media_bindings = '{}' WHERE media_bindings = '' AND @c = 0;
-
--- 唯一索引/普通索引：按列组合判断，避免与老库已有的异名索引重复
-SET @i = (SELECT COUNT(*) FROM (
-    SELECT INDEX_NAME FROM information_schema.statistics
-    WHERE table_schema = DATABASE() AND table_name = 't_user'
-      AND non_unique = 0 AND column_name = 'username'
-    GROUP BY INDEX_NAME HAVING COUNT(*) = 1
-) x);
-SET @sql = IF(@i = 0, 'CREATE UNIQUE INDEX uk_username ON t_user(username)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @i = (SELECT COUNT(*) FROM (
-    SELECT INDEX_NAME FROM information_schema.statistics
-    WHERE table_schema = DATABASE() AND table_name = 't_user'
-      AND non_unique = 0 AND column_name = 'email'
-    GROUP BY INDEX_NAME HAVING COUNT(*) = 1
-) x);
-SET @sql = IF(@i = 0, 'CREATE UNIQUE INDEX uk_t_user_email ON t_user(email)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-SET @i = (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'permission_audits' AND index_name = 'idx_permission_audits_user');
-SET @sql = IF(@i = 0, 'CREATE INDEX idx_permission_audits_user ON permission_audits(user_id, created_at DESC)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- ===== 10. RBAC 初始数据：管理端权限码 =====
-INSERT IGNORE INTO t_permission (permission_code, permission_name, status, create_time, update_time) VALUES
+-- ===== 10. RBAC 基础数据（管理权限码 / 默认组织 / 超级管理员 / 组织内置角色） =====
+-- 10.1 管理端 RBAC 权限码（与第 11 节的 25 项 feature 权限码并存）
+INSERT INTO t_permission (permission_code, permission_name, status, create_time, update_time) VALUES
 ('user:view','查看用户',1,NOW(),NOW()),
 ('user:create','创建用户',1,NOW(),NOW()),
 ('user:update','更新用户',1,NOW(),NOW()),
@@ -318,33 +229,34 @@ INSERT IGNORE INTO t_permission (permission_code, permission_name, status, creat
 ('role:delete','删除角色',1,NOW(),NOW()),
 ('role:assign-permission','分配权限',1,NOW(),NOW());
 
--- 默认组织
-INSERT IGNORE INTO t_organization (org_code, org_name, description, status, create_time, update_time)
+-- 10.2 默认组织（平台级账号归属该组织）
+INSERT INTO t_organization (org_code, org_name, description, status, create_time, update_time)
 VALUES ('DEFAULT_ORG', '默认组织', '系统默认组织', 1, NOW(), NOW());
 
--- 全局超级管理员角色（org_id NULL 表示全局）
+-- 10.3 全局超级管理员角色（org_id NULL 表示全局）
 INSERT INTO t_role (role_code, role_name, description, org_id, status, create_time, update_time)
-SELECT 'SUPER_ADMIN', '超级管理员', '系统全局超级管理员', NULL, 1, NOW(), NOW()
-FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM t_role WHERE role_code = 'SUPER_ADMIN' AND org_id IS NULL);
+VALUES ('SUPER_ADMIN', '超级管理员', '系统全局超级管理员', NULL, 1, NOW(), NOW());
 
--- 为超级管理员分配所有启用权限
-INSERT IGNORE INTO t_role_permission (role_id, permission_id)
-SELECT r.id, p.id FROM t_role r JOIN t_permission p ON p.status = 1
-WHERE r.role_code = 'SUPER_ADMIN' AND r.org_id IS NULL;
-
--- 默认超级管理员用户（username=admin，密码=admin123，BCrypt）
-INSERT IGNORE INTO t_user (username, password, real_name, name, email, role, org_id, status, account_source, create_time, update_time)
-SELECT 'admin', '$2a$12$ovaL7JxZbkPDkqJdzTjvU.TMD3GRw3IXy3pfGfxrYx8vG23NqlgiK', '超级管理员', '超级管理员', 'admin@example.invalid', 'admin', o.id, 1, '系统初始化', NOW(), NOW()
+-- 10.4 默认超级管理员账号（username=admin，密码=admin123，BCrypt）
+INSERT INTO t_user (username, password, real_name, name, email, role, org_id, status, account_source, create_time, update_time)
+SELECT 'admin', '$2a$12$ovaL7JxZbkPDkqJdzTjvU.TMD3GRw3IXy3pfGfxrYx8vG23NqlgiK',
+       '超级管理员', '超级管理员', 'admin@example.invalid', 'admin', o.id, 1, '系统初始化', NOW(), NOW()
 FROM t_organization o WHERE o.org_code = 'DEFAULT_ORG';
 
--- 为默认管理员分配超级管理员角色
-INSERT IGNORE INTO t_user_role (user_id, role_id)
-SELECT u.id, r.id FROM t_user u JOIN t_role r ON r.role_code = 'SUPER_ADMIN' AND r.org_id IS NULL
+-- 10.5 绑定超级管理员角色
+INSERT INTO t_user_role (user_id, role_id)
+SELECT u.id, r.id
+FROM t_user u
+JOIN t_role r ON r.role_code = 'SUPER_ADMIN'
 WHERE u.username = 'admin';
 
--- ===== 11. 种子：26 项 feature 权限码（创作者功能授权） =====
-INSERT IGNORE INTO t_permission (permission_code, permission_name, status, create_time, update_time) VALUES
+-- 10.6 默认组织的组织创作角色（无默认权限，由超管按学校开通 feature）
+INSERT INTO t_role (role_code, role_name, description, org_id, permission_version, status, create_time, update_time)
+SELECT CONCAT('ORG_ADMIN_', o.id), '组织创作角色', '学校创作账号共享角色', o.id, 0, 1, NOW(), NOW()
+FROM t_organization o WHERE o.org_code = 'DEFAULT_ORG';
+
+-- ===== 11. 种子：25 项 feature 权限码（创作者功能授权） =====
+INSERT INTO t_permission (permission_code, permission_name, status, create_time, update_time) VALUES
 ('text-studio','文本工作室',1,NOW(),NOW()),
 ('script','剧本创作',1,NOW(),NOW()),
 ('storyboard','分镜',1,NOW(),NOW()),
@@ -359,7 +271,6 @@ INSERT IGNORE INTO t_permission (permission_code, permission_name, status, creat
 ('video','视频生成',1,NOW(),NOW()),
 ('voice','配音',1,NOW(),NOW()),
 ('music','音乐',1,NOW(),NOW()),
-('lyricRecognition','歌词识别',1,NOW(),NOW()),
 ('digital-human','数字人',1,NOW(),NOW()),
 ('edit','本地剪辑',1,NOW(),NOW()),
 ('3d','3D Studio',1,NOW(),NOW()),
@@ -372,27 +283,21 @@ INSERT IGNORE INTO t_permission (permission_code, permission_name, status, creat
 ('recreate','参考视频再创作',1,NOW(),NOW()),
 ('files','我的生成文件',1,NOW(),NOW());
 
--- 为超级管理员补分配 26 项 feature 权限
-INSERT IGNORE INTO t_role_permission (role_id, permission_id)
-SELECT r.id, p.id FROM t_role r JOIN t_permission p
-WHERE r.role_code = 'SUPER_ADMIN' AND r.org_id IS NULL
-  AND p.permission_code IN (
-    'text-studio','script','storyboard','grid','textToImage','imageToImage','imageEdit','image',
-    'textToVideo','imageToVideo','firstLastFrameVideo','video','voice','music','lyricRecognition',
-    'digital-human','edit','3d','short-drama-agent','comic-agent','canvas','director','workflows',
-    'transform','recreate','files');
+-- ===== 12. 角色授权（必须放在全部权限种子之后） =====
+-- 12.1 超级管理员：所有启用权限（含 25 项 feature）
+INSERT INTO t_role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM t_role r JOIN t_permission p ON p.status = 1
+WHERE r.role_code = 'SUPER_ADMIN';
 
--- ===== 12. 已有账号补 role 默认值，并按 RBAC 角色映射提升管理员 =====
-UPDATE t_user SET role = 'user' WHERE role IS NULL OR role = '';
-UPDATE t_user u SET u.role = 'admin'
-WHERE EXISTS (
-    SELECT 1 FROM t_user_role ur
-    JOIN t_role r ON r.id = ur.role_id
-    WHERE ur.user_id = u.id
-      AND (r.role_code = 'SUPER_ADMIN' OR r.role_code LIKE 'ORG_ADMIN\_%' ESCAPE '\\')
-);
+-- 12.2 组织创作角色：默认不分配任何权限，由超管在管理后台按学校开通
 
--- ===== 13. 模型连接与配置数据导入（含厂商 API Key） =====
+-- ===== 13. 平台设置与配置版本初始行 =====
+INSERT INTO system_settings (id, data) VALUES
+(1, '{"platformName":"AI 创作平台","allowRegistration":false,"defaultVideoResolution":"480P","maxVideoDuration":15,"taskConcurrency":4,"jwtHours":24,"retentionDays":30,"autoCleanup":false}');
+
+INSERT INTO config_versions (id, version, updated_at) VALUES (1, 1, NOW());
+
+-- ===== 14. 模型连接与配置数据导入（含厂商 API Key） =====
 INSERT IGNORE INTO model_connections(id,name,provider,base_url,api_key) VALUES
 ('061f6b4e-fd6e-44c2-86ee-5d32bac96325','腾讯云 TokenHub · 音乐','腾讯云 TokenHub','https://tokenhub.tencentmaas.com','${tencent_tokenhub_key}'),
 ('b9b5b665-1bf7-40de-b1d0-9bf0c54617de','DeepSeek','DeepSeek','https://api.deepseek.com','${deepseek_key}'),

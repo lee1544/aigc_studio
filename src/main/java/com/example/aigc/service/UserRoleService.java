@@ -7,6 +7,8 @@ import com.example.aigc.repository.UserRoleRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,9 +32,16 @@ public class UserRoleService {
     }
 
     public List<String> getRoleCodesByUserId(Integer userId) {
-        List<Integer> roleIds = getRoleIdsByUserId(userId);
-        return roleIds.stream()
-                .map(this::getRoleCodeById)
+        return getRoleCodesByRoleIds(getRoleIdsByUserId(userId));
+    }
+
+    /** 批量把角色 id 转成角色编码；一次查询，避免逐个回表。 */
+    public List<String> getRoleCodesByRoleIds(Collection<Integer> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return roleRepository.findAllById(roleIds).stream()
+                .map(Role::getRoleCode)
                 .filter(code -> code != null && !code.isEmpty())
                 .collect(Collectors.toList());
     }
@@ -49,8 +58,16 @@ public class UserRoleService {
     }
 
     public boolean isSuperAdmin(Integer userId) {
-        List<String> userRoles = getRoleCodesByUserId(userId);
-        return userRoles.contains(SystemConstant.SUPER_ADMIN_ROLE_CODE);
+        return isSuperAdminByRoleIds(getRoleIdsByUserId(userId));
+    }
+
+    /** 给定角色 id 集合中是否包含全局超级管理员角色。 */
+    public boolean isSuperAdminByRoleIds(Collection<Integer> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return false;
+        }
+        return roleRepository.findAllById(roleIds).stream()
+                .anyMatch(role -> SystemConstant.SUPER_ADMIN_ROLE_CODE.equals(role.getRoleCode()));
     }
 
     public UserRoleInfo getUserRoleInfo(Integer userId, Integer orgId) {

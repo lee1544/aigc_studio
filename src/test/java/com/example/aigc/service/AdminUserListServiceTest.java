@@ -50,7 +50,7 @@ class AdminUserListServiceTest {
 
     @Test
     void invalidStatusIsRejected() {
-        assertThrows(BusinessException.class, () -> adminUserListService.page(0, 20, null, "frozen"));
+        assertThrows(BusinessException.class, () -> adminUserListService.page(0, 20, null, "frozen", null));
     }
 
     @Test
@@ -71,7 +71,7 @@ class AdminUserListServiceTest {
         features.put(12, snapshot);
         when(featurePermissionService.getFeaturesBatch(any())).thenReturn(features);
 
-        Page<AdminUserListItemDto> page = adminUserListService.page(0, 500, "创作", null);
+        Page<AdminUserListItemDto> page = adminUserListService.page(0, 500, "创作", null, 3);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(userRepository).findAll(any(Specification.class), pageable.capture());
@@ -101,7 +101,7 @@ class AdminUserListServiceTest {
                 role(9, FeaturePermissions.PERSONAL_ROLE(12), "个人功能权限 #12")));
         when(featurePermissionService.getFeaturesBatch(any())).thenReturn(new HashMap<>());
 
-        AdminUserListItemDto dto = adminUserListService.page(0, 20, null, "all").getContent().get(0);
+        AdminUserListItemDto dto = adminUserListService.page(0, 20, null, "all", null).getContent().get(0);
 
         assertTrue(dto.getRoleIds().isEmpty());
         assertTrue(dto.getRoleNames().isEmpty());

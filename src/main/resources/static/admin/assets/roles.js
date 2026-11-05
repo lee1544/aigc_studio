@@ -7,8 +7,11 @@
   var state = {
     roles: [],
     permissions: [],
+    permissionVersion: null,
     editing: null,
-    permissionRole: null
+    permissionRole: null,
+    orgId: '',
+    orgs: []
   };
 
   // 分组规则（模块顺序、标签）统一维护在 common.js，保证与权限管理页一致
@@ -32,11 +35,43 @@
   function init() {
     AdminPage.bindModalClose();
     bindEvents();
+    if (AdminPage.isSuperAdmin()) {
+      loadOrgOptions();
+    } else {
+      // 组织管理员的角色列表本身已按组织隔离，隐藏筛选栏
+      var filterForm = el('roleFilterForm');
+      if (filterForm) {
+        filterForm.hidden = true;
+      }
+    }
     loadAll();
   }
 
   function bindEvents() {
     el('refreshBtn').addEventListener('click', loadAll);
+    var filterForm = el('roleFilterForm');
+    if (filterForm) {
+      filterForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        state.orgId = el('roleOrgFilter').value;
+        loadAll();
+      });
+    }
+    var resetFilterBtn = el('resetRoleFilterBtn');
+    if (resetFilterBtn) {
+      resetFilterBtn.addEventListener('click', function () {
+        el('roleOrgFilter').value = '';
+        state.orgId = '';
+        loadAll();
+      });
+    }
+    var orgFilter = el('roleOrgFilter');
+    if (orgFilter) {
+      orgFilter.addEventListener('change', function () {
+        state.orgId = orgFilter.value;
+        loadAll();
+      });
+    }
     el('createBtn').addEventListener('click', openCreate);
     el('roleForm').addEventListener('submit', submitRole);
     el('permissionSearch').addEventListener('input', filterPermissions);
@@ -80,9 +115,28 @@
     });
   }
 
+  /** 超级管理员可按组织筛选：加载全部组织填充下拉框。 */
+  async function loadOrgOptions() {
+    try {
+      var result = await AIGCS.api('/api/organizations?page=0&size=500');
+      state.orgs = result && Array.isArray(result.items) ? result.items : [];
+      var select = el('roleOrgFilter');
+      if (!select) {
+        return;
+      }
+      select.innerHTML = '<option value="">全部组织</option>' + state.orgs.map(function (org) {
+        return '<option value="' + org.id + '">'
+          + AIGCS.escapeHtml(org.orgName) + '（' + AIGCS.escapeHtml(org.orgCode) + '）</option>';
+      }).join('');
+    } catch (e) {
+      AIGCS.toast('组织列表加载失败：' + (e.message || '未知错误'), 'error');
+    }
+  }
+
   async function loadAll() {
     el('listSummary').textContent = '加载中...';
-    var rolesRequest = AIGCS.api('/api/roles').then(
+    var rolesUrl = '/api/roles' + (state.orgId ? ('?orgId=' + encodeURIComponent(state.orgId)) : '');
+    var rolesRequest = AIGCS.api(rolesUrl).then(
       function (data) {
         return { data: data };
       },
@@ -127,10 +181,15 @@
       || code.indexOf('NORMAL_ADMIN_') === 0;
   }
 
+  /** 组织创作角色只承载 25 项创作 feature。 */
+  function isOrgCreatorRole(role) {
+    return !!role && String(role.roleCode || '').indexOf('ORG_ADMIN_') === 0;
+  }
+
   function renderTable() {
     var body = el('roleTableBody');
     if (state.roles.length === 0) {
-      body.innerHTML = '<tr><td colspan="7"><div class="table-state table-empty"><strong>暂无角色</strong><span>当前组织还没有可用角色。</span></div></td></tr>';
+      body.innerHTML = '<tr><td colspan="8"><div class="table-state table-empty"><strong>暂无角色</strong><span>当前组织还没有可用角色。</span></div></td></tr>';
       el('listSummary').textContent = '共 0 个角色';
       el('pageInfo').textContent = '共 0 个角色';
       return;
@@ -144,7 +203,12 @@
       var permissions = Array.isArray(role.permissions) ? role.permissions : [];
       var actions = '';
       if (canAssign) {
-        actions += '<button class="mini-btn" type="button" data-action="permissions" data-id="' + role.id + '">权限</button>';
+        if (isOrgCreatorRole(role)) {
+          // 组织创作角色的 25 项 feature 在客户端后台维护，服务端只展示管理端权限
+          actions += '<span class="muted-value">功能在客户端配置</span>';
+        } else {
+          actions += '<button class="mini-btn" type="button" data-action="permissions" data-id="' + role.id + '">权限</button>';
+        }
       }
       if (canUpdate) {
         actions += '<button class="mini-btn" type="button" data-action="edit" data-id="' + role.id + '">编辑</button>';
@@ -159,6 +223,7 @@
       return '<tr>'
         + '<td><span class="code-pill">' + AIGCS.escapeHtml(role.roleCode) + '</span></td>'
         + '<td><strong>' + AIGCS.escapeHtml(role.roleName) + '</strong></td>'
+        + '<td class="muted-value">' + AIGCS.escapeHtml(role.orgName || (role.orgId ? ('#' + role.orgId) : '全局')) + '</td>'
         + '<td class="muted-value">' + AIGCS.escapeHtml(AIGCS.shortText(role.description, 40)) + '</td>'
         + '<td><span class="count-pill">' + permissions.length + '</span></td>'
         + '<td>' + (isSystemRole(role)
@@ -174,7 +239,7 @@
   }
 
   function renderError(message) {
-    el('roleTableBody').innerHTML = '<tr><td colspan="7"><div class="table-state table-empty"><strong>加载失败</strong><span>'
+    el('roleTableBody').innerHTML = '<tr><td colspan="8"><div class="table-state table-empty"><strong>加载失败</strong><span>'
       + AIGCS.escapeHtml(message) + '</span><button class="btn btn-ghost btn-sm" type="button" onclick="location.reload()">重新加载</button></div></td></tr>';
     el('listSummary').textContent = '加载失败';
     el('pageInfo').textContent = '加载失败';
@@ -186,7 +251,14 @@
     el('roleId').value = '';
     el('roleCode').disabled = false;
     el('roleModalTitle').textContent = '新建角色';
-    el('roleModalHint').textContent = '角色编码创建后不可修改。';
+    var hint = '角色编码创建后不可修改。';
+    if (AdminPage.isSuperAdmin() && state.orgId) {
+      var selectedOrg = state.orgs.filter(function (org) {
+        return String(org.id) === String(state.orgId);
+      })[0];
+      hint = '新角色将创建到“' + (selectedOrg ? selectedOrg.orgName : ('#' + state.orgId)) + '”。' + hint;
+    }
+    el('roleModalHint').textContent = hint;
     el('roleSubmitBtn').textContent = '创建角色';
     AdminPage.openModal('roleModal');
   }
@@ -230,6 +302,10 @@
     var body = { roleName: roleName, description: description };
     if (!id) {
       body.roleCode = roleCode;
+      // 超级管理员按组织筛选时，把新角色建到所选组织
+      if (AdminPage.isSuperAdmin() && state.orgId) {
+        body.orgId = Number(state.orgId);
+      }
     }
 
     var button = el('roleSubmitBtn');
@@ -253,40 +329,48 @@
 
   async function openPermissions(role) {
     state.permissionRole = role;
-    el('rolePermissionsTitle').textContent = '分配权限';
-    el('rolePermissionsHint').textContent = '为“' + role.roleName + '”按业务模块勾选权限，保存后立即生效。';
+    state.permissionVersion = null;
+    el('rolePermissionsTitle').textContent = '分配管理权限';
+    el('rolePermissionsHint').textContent = '服务端后台只分配用户管理、权限、角色、组织管理权限；创作功能请在客户端后台配置。';
     el('permissionSearch').value = '';
     el('permissionGroups').innerHTML = '<div class="loading-line"><span class="spinner"></span>加载权限...</div>';
     AdminPage.openModal('rolePermissionsModal');
 
-    if (state.permissions.length === 0) {
-      try {
+    try {
+      if (state.permissions.length === 0) {
         var permissions = await AIGCS.api('/api/permissions');
         state.permissions = Array.isArray(permissions) ? permissions : [];
-      } catch (e) {
-        el('permissionGroups').innerHTML = '<div class="empty-inline">权限列表加载失败：'
-          + AIGCS.escapeHtml(e.message) + '</div>';
-        el('permissionSelectedCount').textContent = '';
-        return;
       }
-    }
 
-    var selected = {};
-    var rolePermissions = role.permissions;
-    if (!Array.isArray(rolePermissions)) {
-      try {
-        rolePermissions = await AIGCS.api('/api/roles/' + role.id + '/permissions');
-      } catch (e) {
-        rolePermissions = [];
-      }
-    }
-    (Array.isArray(rolePermissions) ? rolePermissions : []).forEach(function (permission) {
-      selected[permission.id] = true;
-    });
+      var snapshot = await loadRolePermissionSnapshot(role);
+      state.permissionVersion = snapshot.version;
+      var selected = {};
+      (Array.isArray(snapshot.permissions) ? snapshot.permissions : []).forEach(function (permission) {
+        selected[permission.id] = true;
+      });
 
-    renderPermissionGroups(selected);
-    filterPermissions();
-    updateSelectedCount();
+      renderPermissionGroups(selected);
+      filterPermissions();
+      updateSelectedCount();
+    } catch (e) {
+      el('permissionGroups').innerHTML = '<div class="empty-inline">权限列表加载失败：'
+        + AIGCS.escapeHtml(e.message) + '</div>';
+      el('permissionSelectedCount').textContent = '';
+    }
+  }
+
+  /** 优先取带版本的快照；旧后端没有快照时回退到权限数组（无版本校验）。 */
+  async function loadRolePermissionSnapshot(role) {
+    try {
+      var snapshot = await AIGCS.api('/api/roles/' + role.id + '/permission-snapshot');
+      return {
+        version: snapshot && snapshot.version != null ? snapshot.version : null,
+        permissions: snapshot && Array.isArray(snapshot.permissions) ? snapshot.permissions : []
+      };
+    } catch (e) {
+      var permissions = await AIGCS.api('/api/roles/' + role.id + '/permissions');
+      return { version: null, permissions: Array.isArray(permissions) ? permissions : [] };
+    }
   }
 
   // 系统管理类权限按“查看 → 创建 → 更新 → 删除 → 授权”的阅读顺序排列
@@ -498,15 +582,22 @@
     var button = el('saveRolePermissionsBtn');
     AIGCS.setButtonLoading(button, true, '保存中...');
     try {
+      var body = state.permissionVersion != null
+        ? { permissionIds: ids, expectedVersion: state.permissionVersion }
+        : ids;
       await AIGCS.api('/api/roles/' + state.permissionRole.id + '/permissions', {
         method: 'POST',
-        body: ids
+        body: body
       });
       AIGCS.toast('角色权限已更新', 'success');
       AdminPage.closeModal('rolePermissionsModal');
       loadAll();
     } catch (e) {
-      AIGCS.toast(e.message || '保存权限失败', 'error');
+      if (e && e.message && e.message.indexOf('已被修改') !== -1) {
+        AIGCS.toast('权限已被其他人修改，请关闭后重新打开再保存', 'error');
+      } else {
+        AIGCS.toast(e.message || '保存权限失败', 'error');
+      }
     } finally {
       AIGCS.setButtonLoading(button, false);
     }

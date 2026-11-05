@@ -25,6 +25,10 @@ public class Role implements Serializable {
     private String description;
     
     private Integer orgId;
+
+    /** 角色权限版本：每次整体覆盖权限 +1，供 expectedVersion 乐观锁使用。 */
+    @Column(nullable = false)
+    private Integer permissionVersion = 0;
     
     private Integer status;
     
@@ -34,4 +38,8 @@ public class Role implements Serializable {
     
     @Transient
     private List<Permission> permissions;
+
+    /** 所属组织名称（列表展示用，org_id 为 NULL 的全局角色为“全局”）。 */
+    @Transient
+    private String orgName;
 }

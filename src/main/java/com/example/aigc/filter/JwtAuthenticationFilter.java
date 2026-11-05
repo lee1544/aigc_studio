@@ -43,6 +43,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 request.setAttribute("username", "developer");
                 request.setAttribute("role", "admin");
                 request.setAttribute("isDevBypass", true);
+                // 开发 bypass 等价于平台管理员，数据范围不限制组织
+                request.setAttribute("isSuperAdmin", true);
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken("developer", null, new ArrayList<>());
@@ -87,10 +89,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     }
                 }
 
+                // 组织归属与账号类型以数据库为准（会话缓存按 tokenVersion 失效），
+                // 避免旧 token 在账号被降级/调组织后仍按旧 claim 放行
+                Integer effectiveOrgId = info.orgId != null ? info.orgId : orgId;
+                String effectiveRole = info.role != null ? info.role : role;
                 request.setAttribute("userId", userId);
-                request.setAttribute("orgId", orgId);
+                request.setAttribute("orgId", effectiveOrgId);
                 request.setAttribute("username", username);
-                request.setAttribute("role", role);
+                request.setAttribute("role", effectiveRole);
+                request.setAttribute("isSuperAdmin", info.superAdmin);
                 request.setAttribute("userPermissions", info.permissions);
 
                 UsernamePasswordAuthenticationToken authentication =

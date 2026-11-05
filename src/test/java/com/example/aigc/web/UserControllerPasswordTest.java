@@ -95,7 +95,7 @@ class UserControllerPasswordTest {
         User target = new User();
         target.setId(2);
         target.setOrgId(0);
-        when(userService.getUsersById(2)).thenReturn(target);
+        when(userService.requireUserAccessible(2, 0)).thenReturn(target);
         when(userService.updateUserPassword(2, "old-pass", "new-pass-1")).thenReturn(target);
 
         mockMvc.perform(put("/api/users/2/password")
@@ -106,7 +106,7 @@ class UserControllerPasswordTest {
                         .content("{\"oldPassword\":\"old-pass\",\"password\":\"new-pass-1\"}"))
                 .andExpect(status().isOk());
 
-        verify(userService).getUsersById(2);
+        verify(userService).requireUserAccessible(2, 0);
         verify(userService).updateUserPassword(2, "old-pass", "new-pass-1");
     }
 }

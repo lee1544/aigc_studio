@@ -1656,6 +1656,10 @@ body.modal-open {
   grid-template-columns: minmax(220px, 1.4fr) minmax(130px, .5fr) auto;
 }
 
+.filters-four {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.3fr) minmax(120px, .5fr) auto;
+}
+
 .form-section {
   margin-top: 20px;
   padding-top: 18px;

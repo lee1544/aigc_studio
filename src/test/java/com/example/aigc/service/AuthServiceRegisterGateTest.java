@@ -16,6 +16,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.Collections;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,6 +41,9 @@ class AuthServiceRegisterGateTest {
     @Mock private UserSessionCache userSessionCache;
     @Mock private FeaturePermissionService featurePermissionService;
     @Mock private SystemSettingsService systemSettingsService;
+    @Mock private UserRoleService userRoleService;
+    @Mock private PermissionService permissionService;
+    @Mock private OrganizationService organizationService;
 
     @InjectMocks private AuthService authService;
 
@@ -71,7 +76,13 @@ class AuthServiceRegisterGateTest {
             u.setId(88);
             return u;
         });
-        when(featurePermissionService.getFeatures(88)).thenReturn(FeaturePermissions.allFalse());
+        when(featurePermissionService.getEffectiveFeatures(any(User.class)))
+                .thenReturn(FeaturePermissions.allFalse());
+        when(userRoleService.getRoleIdsByUserId(88)).thenReturn(Collections.emptyList());
+        when(organizationService.getOrgNameById(0)).thenReturn("未分配组织");
+        when(organizationService.getOrgStatusById(0)).thenReturn(null);
+        when(permissionService.getPermissionCodesByRoleIds(Collections.emptyList()))
+                .thenReturn(Collections.emptyList());
         when(jwtTokenUtil.generateToken(anyString(), eq(88), eq(0), eq(0), eq("user"))).thenReturn("token");
 
         LoginResult result = authService.register(request());
