@@ -144,7 +144,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 ### 1.5 时间与枚举
 
-- `ContractUserDto.created_at`、`AdminUserListItemDto.created_at/last_login_at` 使用 ISO-8601 UTC 字符串，例如 `2026-11-03T10:49:13Z`。
+- `ContractUserDto.created_at`、`AdminUserListItemDto.created_at/last_login_at` 使用 ISO-8601 UTC 字符串，例如 `2026-11-03T10:49:13Z`。数据库存的是服务端本地时区（JVM `systemDefault`）的墙上时间，返回前会先按本地时区解释再转换为 UTC，不会把本地时间直接标成 `Z`。
 - 其余实体（`Organization`、`Project`、`StudioSkill`、`ModelConnectionCheck` 等）的 `LocalDateTime` 字段按 Jackson 默认格式输出，例如 `2026-11-03T10:49:13`。
 - 用户状态：内部 `1=active`、`0=disabled`、`-1=deleted`；对外统一 `active` / `disabled` / `deleted`。
 - 用户角色：`admin`（管理端） / `user`（创作者）。
@@ -1999,3 +1999,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-04 | 管理后台角色/用户列表新增组织筛选：`GET /api/roles`、`GET /api/users`、`GET /api/admin/users` 支持可选 `orgId`（超级管理员生效，组织管理员强制本组织）；`POST /api/users` 支持超级管理员把新用户建到所选组织 |
 | 2026-11-04 | 修复 `t_user.role` 与 RBAC 管理员角色不一致：仅 `SUPER_ADMIN`/`ORG_ADMIN_*` 同步 `role=admin`，移除后回 `user`；`NORMAL_ADMIN_*` 与用户自建角色只授予权限、保持 `user`；默认超管不可移除管理员角色；JWT 过滤器改用数据库中的账号类型，降级后旧 token 立即失效 |
 | 2026-11-04 | 初始化脚本合并：`db/migration` 仅保留 `V1__init.sql`，包含原 V1~V6 的最终表结构、权限/组织/管理员种子、平台设置与模型配置；删除 V2~V6 与独立全量脚本。V1 仅面向全新空库，旧库不再兼容，需重建数据库 |
+| 2026-11-05 | 修复 `created_at`/`last_login_at` 时区错误：数据库本地墙上时间（如 `14:45`）此前被直接标成 `14:45:25Z`，前端按 UTC 再转北京时区后变为 `22:45`；现改为按 JVM 时区解释后转换为 UTC（`06:45:25Z`） |

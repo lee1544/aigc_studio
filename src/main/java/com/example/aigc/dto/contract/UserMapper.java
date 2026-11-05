@@ -4,6 +4,7 @@ import com.example.aigc.constant.FeaturePermissions;
 import com.example.aigc.entity.User;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -40,10 +41,17 @@ public final class UserMapper {
         }
     }
 
+    /**
+     * 数据库里的 DATETIME 是 JVM 本地时区的墙上时间（由 {@code LocalDateTime.now()} 写入），
+     * 而契约要求 ISO-8601 UTC。这里先按本地时区解释该时间，再转换到 UTC 输出，
+     * 避免把 14:45（+08:00）直接标成 {@code 14:45:25Z} 导致前端再加 8 小时。
+     */
     public static String iso(LocalDateTime time) {
         if (time == null) return null;
-        // SQLite UTC 字符串兼容；统一输出 ISO-8601 UTC
-        return DateTimeFormatter.ISO_DATE_TIME.format(time.atOffset(ZoneOffset.UTC));
+        return DateTimeFormatter.ISO_DATE_TIME.format(
+                time.atZone(ZoneId.systemDefault())
+                        .withZoneSameInstant(ZoneOffset.UTC)
+                        .toOffsetDateTime());
     }
 
     /** 基础 User（无 created_at/features）。 */
