@@ -701,7 +701,6 @@ Token 由登录/注册接口返回，载荷包含：
 - 超级管理员：不传 `orgId` 时返回全部组织的业务角色 + 全局 `SUPER_ADMIN`；传 `orgId` 时只返回该组织的角色。
 - 组织管理员：仅本组织角色。
 - 个人 role（`USER_FEATURES_{userId}`）不作为业务角色返回。
-- 每个角色内联的 `permissions`：管理端角色（`SUPER_ADMIN`、`NORMAL_ADMIN_*`、自定义角色）只返回后端 RBAC 权限码；`ORG_ADMIN_*` 返回其创作 feature（由客户端后台维护）。
 
 ### 6.2 角色详情
 
@@ -775,7 +774,6 @@ Token 由登录/注册接口返回，载荷包含：
 - 传入不存在的权限 ID 返回 `400`，不会部分写入。
 - 事务提交后失效该角色下所有用户的权限缓存。
 - 组织管理员只能给本组织角色授权；`SUPER_ADMIN` 角色仅超级管理员可维护。
-- 管理端角色只接受后端 RBAC 权限码（`user:*`、`org:*`、`role:*`、`permission:*`、`license:*`），传入创作 feature 返回 `400`；`ORG_ADMIN_*` 相反，只接受 25 项创作 feature。
 
 响应 `200`：空响应体。
 
@@ -786,8 +784,6 @@ Token 由登录/注册接口返回，载荷包含：
 `GET /api/roles/{id}/permissions` · `role:view`
 
 响应 `200`：`Permission[]`。
-
-> 管理端角色只返回后端 RBAC 权限码；`ORG_ADMIN_*` 返回创作 feature。角色授权弹窗（`/permission-snapshot`）同样按此规则过滤。
 
 错误：`404` 角色不存在或不在当前数据范围。
 
@@ -824,7 +820,7 @@ Token 由登录/注册接口返回，载荷包含：
 | `user:assign-role` / `user:reset-password` | 分配角色/重置密码 |
 | `org:view` / `org:create` / `org:update` / `org:delete` | 组织管理 |
 | `role:view` / `role:create` / `role:update` / `role:delete` / `role:assign-permission` | 角色管理 |
-| 25 项 feature 权限码 | 见 [16.1](#161-25-项-feature)；只能分配给 `ORG_ADMIN_*` 组织创作角色，管理端角色不可用 |
+| 25 项 feature 权限码 | 见 [16.1](#161-25-项-feature) |
 
 内置角色默认授权：
 
@@ -2005,4 +2001,3 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-04 | 初始化脚本合并：`db/migration` 仅保留 `V1__init.sql`，包含原 V1~V6 的最终表结构、权限/组织/管理员种子、平台设置与模型配置；删除 V2~V6 与独立全量脚本。V1 仅面向全新空库，旧库不再兼容，需重建数据库 |
 | 2026-11-05 | 修复 `created_at`/`last_login_at` 时区错误：数据库本地墙上时间（如 `14:45`）此前被直接标成 `14:45:25Z`，前端按 UTC 再转北京时区后变为 `22:45`；现改为按 JVM 时区解释后转换为 UTC（`06:45:25Z`） |
 | 2026-11-05 | 客户端在响应写完前断开（如 Node 服务超时/重启，Windows 报“你的主机中的软件中止了一个已建立的连接”）不再记为 500 系统异常：`GlobalExceptionHandler` 识别 `ClientAbortException`/连接重置类 IOException，按 499 处理并降为 debug 日志 |
-| 2026-11-06 | 管理后台角色授权只处理后端权限：`GET /api/roles`、`/api/roles/{id}/permissions`、`/api/roles/{id}/permission-snapshot` 对管理端角色过滤掉 25 项创作 feature；管理端角色保存 feature 权限返回 400；管理员会话 `permissions` 不再包含创作 feature |
