@@ -225,7 +225,9 @@
         + '<td><strong>' + AIGCS.escapeHtml(role.roleName) + '</strong></td>'
         + '<td class="muted-value">' + AIGCS.escapeHtml(role.orgName || (role.orgId ? ('#' + role.orgId) : '全局')) + '</td>'
         + '<td class="muted-value">' + AIGCS.escapeHtml(AIGCS.shortText(role.description, 40)) + '</td>'
-        + '<td><span class="count-pill">' + permissions.length + '</span></td>'
+        + '<td>' + (isOrgCreatorRole(role)
+          ? '<span class="muted-value">\u2014</span>'
+          : '<span class="count-pill">' + permissions.length + '</span>') + '</td>'
         + '<td>' + (isSystemRole(role)
           ? '<span class="role-badge role-badge-system">系统</span>'
           : '<span class="role-badge">自定义</span>') + '</td>'

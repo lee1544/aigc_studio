@@ -1,6 +1,7 @@
 package com.example.aigc.service;
 
 import com.example.aigc.constant.FeaturePermissions;
+import com.example.aigc.constant.SystemConstant;
 import com.example.aigc.dto.contract.AdminLoginRequest;
 import com.example.aigc.dto.contract.ContractUserDto;
 import com.example.aigc.dto.contract.CreatorLoginRequest;
@@ -188,7 +189,14 @@ public class AuthService {
                 .filter(code -> code != null && !code.isEmpty())
                 .collect(Collectors.toList());
         dto.setRoles(roleCodes);
-        dto.setPermissions(permissionService.getPermissionCodesByRoleIds(roleIds));
+        List<String> permissionCodes = permissionService.getPermissionCodesByRoleIds(roleIds);
+        if (admin) {
+            // 管理端只接收后台 RBAC 权限码；创作者 feature 不在管理后台配置
+            permissionCodes = permissionCodes.stream()
+                    .filter(SystemConstant::isBackendPermissionCode)
+                    .collect(Collectors.toList());
+        }
+        dto.setPermissions(permissionCodes);
         return dto;
     }
 

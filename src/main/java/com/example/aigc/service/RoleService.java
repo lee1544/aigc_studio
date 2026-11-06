@@ -87,7 +87,7 @@ public class RoleService {
                 .collect(Collectors.toList());
         Map<Integer, List<Permission>> permissionMap = permissionService.getPermissionsByRoleIds(roleIds);
         roles.forEach(role -> role.setPermissions(
-                permissionMap.getOrDefault(role.getId(), Collections.emptyList())));
+                manageablePermissions(role, permissionMap.getOrDefault(role.getId(), Collections.emptyList()))));
         fillOrgNames(roles);
         return roles;
     }
@@ -206,6 +206,9 @@ public class RoleService {
         }
         if (SystemConstant.isOrgAdminRoleCode(role.getRoleCode())) {
             validateFeatureOnly(permissionIds);
+        } else {
+            // 管理端角色只维护后台 RBAC 权限；客户端 feature 统一在客户端后台配置
+            validateBackendOnly(permissionIds);
         }
         // PermissionService 内部已处理缓存清除与权限 ID 校验
         permissionService.assignPermissionsToRole(roleId, permissionIds);
@@ -216,13 +219,7 @@ public class RoleService {
 
     /** 组织创作角色只能分配创作 feature；任何管理端权限码都返回 400。 */
     private void validateFeatureOnly(Integer[] permissionIds) {
-        if (permissionIds == null || permissionIds.length == 0) {
-            return;
-        }
-        List<Integer> ids = java.util.Arrays.stream(permissionIds)
-                .filter(java.util.Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
+        List<Integer> ids = distinctNonNull(permissionIds);
         if (ids.isEmpty()) {
             return;
         }
@@ -235,18 +232,58 @@ public class RoleService {
         }
     }
 
+    /** 管理端角色只能分配后端 RBAC 权限码；客户端 feature 不属于管理后台配置范围。 */
+    private void validateBackendOnly(Integer[] permissionIds) {
+        List<Integer> ids = distinctNonNull(permissionIds);
+        if (ids.isEmpty()) {
+            return;
+        }
+        List<Permission> permissions = permissionRepository.findAllById(ids);
+        for (Permission permission : permissions) {
+            if (!SystemConstant.isBackendPermissionCode(permission.getPermissionCode())) {
+                throw new BusinessException("管理端角色只能分配后台管理权限: "
+                        + permission.getPermissionCode());
+            }
+        }
+    }
+
+    private List<Integer> distinctNonNull(Integer[] permissionIds) {
+        if (permissionIds == null || permissionIds.length == 0) {
+            return Collections.emptyList();
+        }
+        return java.util.Arrays.stream(permissionIds)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 管理端接口只暴露后端 RBAC 权限码；组织创作角色的 feature 由客户端后台维护。
+     */
+    private List<Permission> manageablePermissions(Role role, List<Permission> permissions) {
+        if (permissions == null) {
+            return Collections.emptyList();
+        }
+        if (SystemConstant.isOrgAdminRoleCode(role.getRoleCode())) {
+            return permissions;
+        }
+        return permissions.stream()
+                .filter(permission -> SystemConstant.isBackendPermissionCode(permission.getPermissionCode()))
+                .collect(Collectors.toList());
+    }
+
     /** 角色权限快照：当前权限 + 版本，供前端 expectedVersion 保存。 */
     public RolePermissionSnapshotDto getPermissionSnapshot(Integer roleId, Integer scopeOrgId) {
         Role role = requireRoleInScope(roleId, scopeOrgId);
         RolePermissionSnapshotDto dto = new RolePermissionSnapshotDto();
         dto.setVersion(role.getPermissionVersion() == null ? 0 : role.getPermissionVersion());
-        dto.setPermissions(permissionService.getPermissionsByRoleId(roleId));
+        dto.setPermissions(manageablePermissions(role, permissionService.getPermissionsByRoleId(roleId)));
         return dto;
     }
     
     public List<Permission> getRolePermissions(Integer roleId, Integer scopeOrgId) {
-        requireRoleInScope(roleId, scopeOrgId);
-        return permissionService.getPermissionsByRoleId(roleId);
+        Role role = requireRoleInScope(roleId, scopeOrgId);
+        return manageablePermissions(role, permissionService.getPermissionsByRoleId(roleId));
     }
 
     public Role getRoleByCode(String roleCode) {

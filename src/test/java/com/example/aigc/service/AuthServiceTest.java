@@ -57,6 +57,23 @@ class AuthServiceTest {
     }
 
     @Test
+    void adminSessionPermissionsExcludeCreatorFeatures() {
+        User admin = adminUser();
+        when(userRepository.findById(admin.getId())).thenReturn(Optional.of(admin));
+        when(userRoleService.isSuperAdmin(admin.getId())).thenReturn(true);
+        when(userRoleService.getRoleIdsByUserId(admin.getId())).thenReturn(Arrays.asList(2));
+        when(userRoleService.getRoleCodeById(2)).thenReturn("SUPER_ADMIN");
+        when(permissionService.getPermissionCodesByRoleIds(Arrays.asList(2)))
+                .thenReturn(Arrays.asList("user:view", "script", "role:assign-permission"));
+        when(organizationService.getOrgNameById(1)).thenReturn("总部");
+        when(organizationService.getOrgStatusById(1)).thenReturn(1);
+
+        ContractUserDto dto = authService.currentUser(admin.getId());
+
+        assertEquals(Arrays.asList("user:view", "role:assign-permission"), dto.getPermissions());
+    }
+
+    @Test
     void adminLoginIncludesLegacyRbacFields() {
         User admin = adminUser();
         admin.setLastLoginTime(null);
