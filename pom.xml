@@ -64,17 +64,15 @@
             <artifactId>mysql-connector-j</artifactId>
             <version>8.0.33</version>
         </dependency>
-        <!-- Flyway 数据库版本迁移：Spring Boot 2.6.13 对应 8.5.13，flyway-mysql 需显式指定同版本 -->
+        <!-- Flyway 数据库版本迁移（版本选择原因见下方注释） -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
-            <version>8.5.13</version>
+            <version>7.15.0</version>
         </dependency>
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-mysql</artifactId>
-            <version>8.5.13</version>
-        </dependency>
+        <!-- 生产库为 MySQL 5.7.44，Flyway Community 自 8.0.0 起把 MySQL 最低支持版本提高到 8.0，
+             8.x 启动即抛 FlywayEditionUpgradeRequiredException；7.15.0 是最后一个支持 5.7 的社区版，
+             且 7.x 的 MySQL 方言内置在 flyway-core，无需 flyway-mysql。升级到 MySQL 8.0 后可改回 Boot 管理的 8.0.5。 -->
     </dependencies>
     <dependencyManagement>
         <dependencies>
