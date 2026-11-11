@@ -4,6 +4,7 @@ import com.example.aigc.constant.FeaturePermissions;
 import com.example.aigc.dto.contract.LoginResult;
 import com.example.aigc.dto.contract.RegisterRequest;
 import com.example.aigc.entity.User;
+import com.example.aigc.exception.ConflictException;
 import com.example.aigc.exception.ForbiddenException;
 import com.example.aigc.filter.UserSessionCache;
 import com.example.aigc.repository.UserRepository;
@@ -19,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -49,8 +51,8 @@ class AuthServiceRegisterGateTest {
 
     private RegisterRequest request() {
         RegisterRequest r = new RegisterRequest();
+        r.setUsername("new_creator");
         r.setName("新创作者");
-        r.setEmail("new-creator@example.test");
         r.setPassword("pwd123456");
         return r;
     }
@@ -62,14 +64,27 @@ class AuthServiceRegisterGateTest {
         assertThrows(ForbiddenException.class, () -> authService.register(request()));
 
         verify(userRepository, never()).save(any(User.class));
-        verify(userRepository, never()).existsByEmail(anyString());
+        verify(userRepository, never()).existsByUsername(anyString());
+        verify(featurePermissionService, never()).initForNewUser(any(User.class), any());
+    }
+
+    @Test
+    void duplicateUsernameIsRejectedBeforeWriting() {
+        when(systemSettingsService.isRegistrationAllowed()).thenReturn(true);
+        when(userRepository.existsByUsername("new_creator")).thenReturn(true);
+
+        ConflictException error = assertThrows(ConflictException.class,
+                () -> authService.register(request()));
+
+        assertEquals("用户名已注册", error.getMessage());
+        verify(userRepository, never()).save(any(User.class));
         verify(featurePermissionService, never()).initForNewUser(any(User.class), any());
     }
 
     @Test
     void openSwitchCreatesCreatorWithAllFalseFeatures() {
         when(systemSettingsService.isRegistrationAllowed()).thenReturn(true);
-        when(userRepository.existsByEmail("new-creator@example.test")).thenReturn(false);
+        when(userRepository.existsByUsername("new_creator")).thenReturn(false);
         when(passwordEncoder.encode("pwd123456")).thenReturn("hash");
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
             User u = invocation.getArgument(0);
@@ -92,6 +107,8 @@ class AuthServiceRegisterGateTest {
         verify(featurePermissionService).initForNewUser(any(User.class), isNull());
         assertEquals("user", saved.getValue().getRole());
         assertEquals(Integer.valueOf(1), saved.getValue().getStatus());
+        assertEquals("new_creator", saved.getValue().getUsername());
+        assertNull(saved.getValue().getEmail());
         assertEquals("token", result.getToken());
     }
 }

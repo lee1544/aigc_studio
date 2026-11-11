@@ -69,7 +69,6 @@ public class OrganizationService {
         request.setOrgCode(trim(request.getOrgCode()));
         request.setOrgName(trim(request.getOrgName()));
         request.setAdminUsername(trim(request.getAdminUsername()));
-        request.setAdminEmail(trim(request.getAdminEmail()));
         request.setAdminRealName(trim(request.getAdminRealName()));
 
         // 先做完全部唯一性校验，避免产生“组织已建、账号建失败”的中间态
@@ -81,9 +80,6 @@ public class OrganizationService {
         }
         if (userRepository.existsByUsername(request.getAdminUsername())) {
             throw new BusinessException("管理员用户名已存在");
-        }
-        if (userRepository.existsByEmail(request.getAdminEmail())) {
-            throw new com.example.aigc.exception.ConflictException("管理员邮箱已存在");
         }
         validateAdminPassword(request.getAdminPassword());
 
@@ -142,7 +138,6 @@ public class OrganizationService {
     private void createOrgAdminUser(Organization org, Role orgAdminRole, CreateOrganizationRequest request) {
         User adminUser = new User();
         adminUser.setUsername(request.getAdminUsername());
-        adminUser.setEmail(request.getAdminEmail());
         adminUser.setPassword(passwordEncoder.encode(request.getAdminPassword()));
         adminUser.setRealName(request.getAdminRealName());
         adminUser.setName(request.getAdminRealName());

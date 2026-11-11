@@ -269,7 +269,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 错误：`401` 用户名或密码错误 / 非创作者账号 / 账号已被禁用或删除。
 
-说明：登录凭据为 `t_user.username`（全局唯一）；自助注册账号的 `username` 默认等于注册邮箱，可直接用该字符串登录。
+说明：登录凭据为 `t_user.username`（全局唯一）。自助注册与创建组织都由调用方直接指定用户名，`email` 仅是可选联系方式，不参与登录。
 
 ### 2.4 创作者注册
 
@@ -278,23 +278,24 @@ Token 由登录/注册接口返回，载荷包含：
 请求：
 
 ```json
-{ "name": "创作者", "email": "creator@example.com", "password": "secret123" }
+{ "username": "creator01", "name": "创作者", "password": "secret123" }
 ```
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
-| `name` | string | 是 | ≤ 80 |
-| `email` | string | 是 | 合法邮箱，≤ 50，全局唯一 |
+| `username` | string | 是 | 6–50，全局唯一，即登录名 |
+| `name` | string | 是 | ≤ 80，显示名 |
 | `password` | string | 是 | 6–256 |
 
 行为：
 
 - `allowRegistration=false` 时直接 `403 平台已关闭注册`，不写库。
 - 注册成功默认 **25 项 feature 全 false**；请求体不接收 `features`。
-- `username` 自动设为 email，`orgId=0`，`accountSource=自助注册`。
+- 不再采集邮箱：`t_user.email` 留空（NULL），登录只用用户名。
+- `orgId=0`，`accountSource=自助注册`。
 - 返回与登录相同的 `{token, user}`，可直接进入会话。
 
-错误：`403` 注册已关闭；`409` 邮箱已注册；`400` 参数校验失败。
+错误：`403` 注册已关闭；`409` 用户名已注册；`400` 参数校验失败。
 
 ### 2.5 当前会话用户
 
@@ -642,9 +643,8 @@ Token 由登录/注册接口返回，载荷包含：
 行为（同一事务）：
 
 1. 校验组织编码/名称/管理员用户名唯一，任一冲突直接 `400`，不会留下半成品组织。
-2. 创建 `ORG_ADMIN_{orgId}` 角色并分配默认权限（用户/角色管理 + `org:view`，不包含组织创建/修改/删除）。
-3. 创建 `NORMAL_ADMIN_{orgId}` 角色并分配默认权限（`user:view`、`user:update`）。
-4. 使用请求中的账号信息创建组织管理员：`role=admin`、`status=1`、`accountSource=组织管理员`，绑定 `ORG_ADMIN_{orgId}`，可直接登录 `/api/admin/login`。
+2. 创建 `ORG_ADMIN_{orgId}` 组织创作角色，默认**不分配任何权限**（25 项创作 feature 由客户端后台另行开通）。
+3. 用请求中的账号信息创建学校创作账号：`role=user`、`status=1`、`accountSource=学校创作账号`，绑定 `ORG_ADMIN_{orgId}`。不采集邮箱，登录方式为用户名 + 密码（`POST /api/auth/login`）。
 
 响应 `200`：`Organization`。
 
@@ -2004,4 +2004,5 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-05 | 修复 `created_at`/`last_login_at` 时区错误：数据库本地墙上时间（如 `14:45`）此前被直接标成 `14:45:25Z`，前端按 UTC 再转北京时区后变为 `22:45`；现改为按 JVM 时区解释后转换为 UTC（`06:45:25Z`） |
 | 2026-11-05 | 客户端在响应写完前断开（如 Node 服务超时/重启，Windows 报“你的主机中的软件中止了一个已建立的连接”）不再记为 500 系统异常：`GlobalExceptionHandler` 识别 `ClientAbortException`/连接重置类 IOException，按 499 处理并降为 debug 日志 |
 | 2026-11-06 | 请求路径中的重复斜杠（如 `//api//users`，常见于网关把 baseUrl 与接口路径各自带 `/` 拼接）在进入 Spring Security 前折叠为单斜杠，避免 `StrictHttpFirewall` 以“URL contained a potentially malicious String "//"”拒绝请求；防火墙其余校验保持不变 |
-| 2026-11-11 | `POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”：请求体字段 `email` 替换为 `username`，按 `t_user.username` 查找；自助注册账号的 `username` 仍等于注册邮箱，可直接用该字符串登录 |
+| 2026-11-11 | `POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”：请求体字段 `email` 替换为 `username`，按 `t_user.username` 查找 |
+| 2026-11-11 | 注册与创建组织不再采集邮箱：`POST /api/auth/register` 请求体改为 `username`（6–50，全局唯一，即登录名）+ `name` + `password`；`POST /api/organizations` 移除必填的 `adminEmail`。两处创建的账号 `t_user.email` 留空（NULL），统一用用户名 + 密码登录 |

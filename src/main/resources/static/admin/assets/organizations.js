@@ -239,16 +239,15 @@
 
     if (!id) {
       body.adminUsername = el('adminUsername').value.trim();
-      body.adminEmail = el('adminEmail').value.trim();
       body.adminPassword = el('adminPassword').value;
       body.adminRealName = el('adminRealName').value.trim();
-      if (!body.adminUsername || !body.adminRealName || !body.adminEmail || !body.adminPassword) {
+      if (!body.adminUsername || !body.adminRealName || !body.adminPassword) {
         AIGCS.toast('请填写完整的学校创作账号信息', 'error');
         return;
       }
-      if (body.adminEmail.indexOf('@') <= 0) {
-        AIGCS.toast('请输入正确的登录邮箱', 'error');
-        el('adminEmail').focus();
+      if (body.adminUsername.length < 6) {
+        AIGCS.toast('账号用户名至少 6 个字符', 'error');
+        el('adminUsername').focus();
         return;
       }
       if (body.adminPassword.length < 6) {

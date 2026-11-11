@@ -26,6 +26,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -61,7 +62,6 @@ class OrganizationServiceTest {
         request.setOrgName("演示组织");
         request.setDescription("演示");
         request.setAdminUsername("demo_admin");
-        request.setAdminEmail("demo@example.com");
         request.setAdminPassword("secret123");
         request.setAdminRealName("演示管理员");
     }
@@ -80,7 +80,6 @@ class OrganizationServiceTest {
         when(organizationRepository.existsByOrgCode("DEMO_ORG")).thenReturn(false);
         when(organizationRepository.existsByOrgName("演示组织")).thenReturn(false);
         when(userRepository.existsByUsername("demo_admin")).thenReturn(false);
-        when(userRepository.existsByEmail("demo@example.com")).thenReturn(false);
         when(passwordEncoder.encode("secret123")).thenReturn("encoded");
         when(organizationRepository.save(any(Organization.class))).thenAnswer(invocation -> {
             Organization org = invocation.getArgument(0);
@@ -114,7 +113,7 @@ class OrganizationServiceTest {
         verify(userRepository).save(userCaptor.capture());
         User admin = userCaptor.getValue();
         assertEquals("demo_admin", admin.getUsername());
-        assertEquals("demo@example.com", admin.getEmail());
+        assertNull(admin.getEmail());
         assertEquals("encoded", admin.getPassword());
         assertEquals("演示管理员", admin.getRealName());
         assertEquals(Integer.valueOf(2), admin.getOrgId());
@@ -126,22 +125,6 @@ class OrganizationServiceTest {
         verify(userRoleRepository).save(userRoleCaptor.capture());
         assertEquals(Integer.valueOf(30), userRoleCaptor.getValue().getUserId());
         assertEquals(Integer.valueOf(20), userRoleCaptor.getValue().getRoleId());
-    }
-
-    @Test
-    void createOrganizationRejectsDuplicateAdminEmailBeforeWriting() {
-        when(organizationRepository.existsByOrgCode("DEMO_ORG")).thenReturn(false);
-        when(organizationRepository.existsByOrgName("演示组织")).thenReturn(false);
-        when(userRepository.existsByUsername("demo_admin")).thenReturn(false);
-        when(userRepository.existsByEmail("demo@example.com")).thenReturn(true);
-
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> organizationService.createOrganization(request, true));
-        assertEquals("管理员邮箱已存在", ex.getMessage());
-
-        verify(organizationRepository, never()).save(any(Organization.class));
-        verify(roleRepository, never()).save(any(Role.class));
-        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -164,7 +147,6 @@ class OrganizationServiceTest {
         when(organizationRepository.existsByOrgCode("DEMO_ORG")).thenReturn(false);
         when(organizationRepository.existsByOrgName("演示组织")).thenReturn(false);
         when(userRepository.existsByUsername("demo_admin")).thenReturn(false);
-        when(userRepository.existsByEmail("demo@example.com")).thenReturn(false);
         request.setAdminPassword("123");
 
         assertThrows(BusinessException.class,

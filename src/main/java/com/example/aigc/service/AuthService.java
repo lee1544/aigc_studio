@@ -90,13 +90,12 @@ public class AuthService {
         if (!systemSettingsService.isRegistrationAllowed()) {
             throw new ForbiddenException("平台已关闭注册");
         }
-        if (userRepository.existsByEmail(req.getEmail())) {
-            throw new ConflictException("邮箱已注册");
+        if (userRepository.existsByUsername(req.getUsername())) {
+            throw new ConflictException("用户名已注册");
         }
         User user = new User();
-        // username 沿用 email，保证唯一且 admin 登录用户名口径不变
-        user.setUsername(req.getEmail());
-        user.setEmail(req.getEmail());
+        // 登录凭据即 username；注册不再采集 email，邮箱列留空
+        user.setUsername(req.getUsername());
         user.setName(req.getName());
         user.setPassword(passwordEncoder.encode(req.getPassword()));
         user.setRole("user");

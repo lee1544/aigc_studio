@@ -27,7 +27,7 @@ AIGC Studio 的 Java 后端服务：账号与权限（RBAC）、非计费配置�
 ## 功能概览
 
 - **认证**：超级管理员 `POST /api/admin/login`、学校创作账号 `POST /api/auth/login`；JWT 会话隔离；`/api/auth/me`、`/api/auth/permissions` 返回当前账号、组织与权限快照
-- **组织管理**：仅超级管理员可创建/修改/删除组织；创建组织时在同一事务内生成**一个** `ORG_ADMIN_{orgId}` 组织创作角色（默认无任何权限），并用 `adminEmail` + 账号信息创建学校创作账号（`role=user`）绑定该角色；默认组织受保护不可删除；删除组织级联清理用户与角色
+- **组织管理**：仅超级管理员可创建/修改/删除组织；创建组织时在同一事务内生成**一个** `ORG_ADMIN_{orgId}` 组织创作角色（默认无任何权限），并用 `adminUsername` + 账号信息创建学校创作账号（`role=user`）绑定该角色；默认组织受保护不可删除；删除组织级联清理用户与角色
 - **用户管理**：超级管理员可跨组织管理学校创作账号；学校创作账号 `role=user`，不能登录任何管理后台
 - **角色管理**：服务端后台的角色权限只分配用户管理、权限、角色、组织管理端权限；`ORG_ADMIN_{orgId}` 为组织创作角色，其 25 项创作 feature 在客户端后台维护；`NORMAL_ADMIN_*` 已废弃，不再创建
 - **权限管理**：权限编码全局定义，仅超级管理员可启停；权限变更与用户功能权限批量调整均记录审计；权限变更自动清除用户权限缓存
@@ -67,7 +67,7 @@ AIGC Studio 的 Java 后端服务：账号与权限（RBAC）、非计费配置�
 - **超级管理员**：组织、角色、用户、功能权限等列表均不限制组织，可看到全部组织的数据；可创建/修改/删除组织。
 - **学校创作账号**：`role=user`，只能访问创作平台和本人数据；不能访问 `/api/admin/**`、`/api/users/**`、`/api/roles/**`、`/api/organizations/**` 等管理接口；本人改密 `PUT /api/users/{id}/password` 例外。
 - 模型连接/模型配置、Agent/工作流/Skill、系统设置、权限码启停均为仅超级管理员可用的全局配置。
-- 创建组织时**必须**提交学校创作账号信息（`adminUsername` / `adminEmail` / `adminPassword` / `adminRealName`）；组织、`ORG_ADMIN_{orgId}` 组织创作角色、账号与角色绑定在同一事务内完成，默认不分配任何权限。
+- 创建组织时**必须**提交学校创作账号信息（`adminUsername` / `adminPassword` / `adminRealName`）；组织、`ORG_ADMIN_{orgId}` 组织创作角色、账号与角色绑定在同一事务内完成，默认不分配任何权限；账号不采集邮箱，用用户名 + 密码登录创作平台。
 - 权限校验链路：`用户 → t_user_role → 角色 → t_role_permission → 权限`；`@SuperAdminOnly` 负责平台级操作边界，服务层再按 `org_id` 做数据范围校验。
 - `t_user.role`（`admin` / `user`）只由 `SUPER_ADMIN` 决定；`ORG_ADMIN_*`、`NORMAL_ADMIN_*`（已废弃）与用户自建角色都保持 `user`，不能登录管理后台。
 - 任何非计费配置变更都会 bump 配置版本（`ConfigVersion`，单行 id=1），供内部 `node-config` 快照使用。

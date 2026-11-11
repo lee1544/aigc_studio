@@ -2,14 +2,13 @@ package com.example.aigc.dto;
 
 import lombok.Data;
 
-import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
 
 /**
  * 创建组织请求。
- * <p>组织管理员账号信息必填：创建组织时同步创建该账号并绑定组织创作角色。
- * 该账号是学校创作账号（role=user），不是管理后台管理员。
+ * <p>组织创作账号信息必填：创建组织时同步创建该账号并绑定组织创作角色。
+ * 该账号是学校创作账号（role=user），用用户名 + 密码登录创作平台，不是管理后台管理员。
  */
 @Data
 public class CreateOrganizationRequest {
@@ -28,11 +27,6 @@ public class CreateOrganizationRequest {
     @NotBlank(message = "管理员用户名不能为空")
     @Size(min = 6, max = 50, message = "管理员用户名长度6-50个字符")
     private String adminUsername;
-
-    @NotBlank(message = "管理员邮箱不能为空")
-    @Email(message = "管理员邮箱格式不正确")
-    @Size(max = 254, message = "管理员邮箱长度不能超过254个字符")
-    private String adminEmail;
 
     @NotBlank(message = "管理员密码不能为空")
     @Size(min = 6, max = 100, message = "管理员密码长度6-100个字符")

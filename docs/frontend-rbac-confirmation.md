@@ -5,7 +5,9 @@
 > 实施记录：后端、V1、管理后台表单与角色授权页已调整；单测 126 通过；新库完成 V1、超管/学校账号登录、共享角色授权、版本冲突、本人改密、组织停用联调。
 > 适用：服务端管理后台、客户端管理后台、创作平台前端、Node 计费服务。
 >
-> **2026-11-11 变更**：`POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”，请求体字段 `email` 改为 `username`（按 `t_user.username` 查找）。下文凡涉及“用 email 登录创作平台”的描述，一律以 `docs/API.md` 的 2.3 节为准；自助注册账号 `username` 仍等于注册邮箱，可继续用该字符串登录。
+> **2026-11-11 变更（登录）**：`POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”，请求体字段 `email` 改为 `username`（按 `t_user.username` 查找）。下文凡涉及“用 email 登录创作平台”的描述，一律以 `docs/API.md` 的 2.3 节为准。
+>
+> **2026-11-11 变更（采集字段）**：注册与创建组织不再采集邮箱。`POST /api/auth/register` 请求体改为 `username` + `name` + `password`；`POST /api/organizations` 移除必填的 `adminEmail`，下文出现的 `adminEmail` 字段与“创建组织时补齐邮箱”的运维要求均已作废，以 `docs/API.md` 的 2.4 / 5.3 节为准。
 
 ---
 

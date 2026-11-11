@@ -210,21 +210,17 @@
         <div id="orgAdminFields" class="form-section">
           <div class="form-section-head">
             <h3>学校创作账号</h3>
-            <p>该账号是学校创作账号（role=user），绑定组织创作角色，用邮箱 + 密码登录创作平台，不进入管理后台。</p>
+            <p>该账号是学校创作账号（role=user），绑定组织创作角色，用用户名 + 密码登录创作平台，不进入管理后台。</p>
           </div>
           <div class="form-grid">
             <label class="field">
               <span class="field-label">账号用户名 <em>*</em></span>
-              <input id="adminUsername" type="text" maxlength="50" required autocomplete="off">
+              <input id="adminUsername" type="text" maxlength="50" minlength="6" required autocomplete="off">
+              <span class="field-hint">用于创作平台登录，6-50 个字符，全局唯一</span>
             </label>
             <label class="field">
               <span class="field-label">账号姓名 <em>*</em></span>
               <input id="adminRealName" type="text" maxlength="50" required autocomplete="off">
-            </label>
-            <label class="field field-full">
-              <span class="field-label">登录邮箱 <em>*</em></span>
-              <input id="adminEmail" type="email" maxlength="254" required autocomplete="off">
-              <span class="field-hint">用于创作平台登录，全局唯一</span>
             </label>
             <label class="field field-full">
               <span class="field-label">登录密码 <em>*</em></span>
