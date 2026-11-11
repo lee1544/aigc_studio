@@ -1,26 +1,22 @@
 package com.example.aigc.dto.contract;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
-import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 import java.util.Map;
 
-/** POST /api/admin/users：创建创作者账号，可选 features。 */
+/** POST /api/admin/users：创建创作者账号（用户名 + 姓名 + 密码），可选 features。 */
 @Data
 public class CreateUserContractRequest {
 
     @NotBlank
+    @Size(min = 6, max = 50)
+    private String username;
+
+    @NotBlank
     @Size(max = 80)
     private String name;
-
-    @Email
-    @NotBlank
-    @Size(max = 50)
-    private String email;
 
     @NotBlank
     @Size(min = 6, max = 256)

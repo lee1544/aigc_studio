@@ -7,7 +7,7 @@
 >
 > **2026-11-11 变更（登录）**：`POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”，请求体字段 `email` 改为 `username`（按 `t_user.username` 查找）。下文凡涉及“用 email 登录创作平台”的描述，一律以 `docs/API.md` 的 2.3 节为准。
 >
-> **2026-11-11 变更（采集字段）**：注册与创建组织不再采集邮箱。`POST /api/auth/register` 请求体改为 `username` + `name` + `password`；`POST /api/organizations` 移除必填的 `adminEmail`，下文出现的 `adminEmail` 字段与“创建组织时补齐邮箱”的运维要求均已作废，以 `docs/API.md` 的 2.4 / 5.3 节为准。
+> **2026-11-11 变更（采集字段）**：注册、创建组织、后台创建创作者三个入口不再采集邮箱。`POST /api/auth/register` 请求体改为 `username` + `name` + `password`；`POST /api/organizations` 移除必填的 `adminEmail`；`POST /api/admin/users` 的 `email` 改为 `username`。下文出现的 `adminEmail` 字段、`email` 作为登录名以及“创建组织时补齐邮箱”的运维要求均已作废，以 `docs/API.md` 的 2.4 / 3.2 / 5.3 节为准。
 
 ---
 

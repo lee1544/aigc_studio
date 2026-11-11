@@ -339,21 +339,18 @@ public class UserService {
 
     // ==================== 契约：/api/admin/users 管理 ====================
 
-    /** POST /api/admin/users：创建创作者账号，归属调用方组织，可选 features。 */
+    /** POST /api/admin/users：创建创作者账号（用户名 + 姓名 + 密码），归属调用方组织，可选 features。 */
     @Transactional
     public User createCreator(CreateUserContractRequest req, Integer orgId) {
-        if (req.getEmail() == null || req.getEmail().isEmpty()) {
-            throw new BusinessException("email 不能为空");
-        }
-        if (userRepository.existsByEmail(req.getEmail())) {
-            throw new ConflictException("邮箱已存在");
+        if (userRepository.existsByUsername(req.getUsername())) {
+            throw new ConflictException("用户名已存在");
         }
         if (orgId == null || !organizationRepository.existsById(orgId)) {
             throw new BusinessException("组织不存在");
         }
         User user = new User();
-        user.setUsername(req.getEmail());
-        user.setEmail(req.getEmail());
+        // 登录凭据即 username；创建接口不再采集 email，邮箱列留空
+        user.setUsername(req.getUsername());
         user.setName(req.getName());
         user.setRealName(req.getName());
         user.setPassword(passwordEncoder.encode(req.getPassword()));
@@ -372,7 +369,7 @@ public class UserService {
         return user;
     }
 
-    /** PATCH /api/admin/users/{id}：未传字段沿用；密码/邮箱/状态修改撤销旧 token。 */
+    /** PATCH /api/admin/users/{id}：未传字段沿用；密码/状态修改撤销旧 token（邮箱仅作联系方式，不改登录名）。 */
     @Transactional
     public User patchCreator(Integer userId, UpdateUserContractRequest req, Integer scopeOrgId) {
         User user = requireCreator(userId, scopeOrgId);
@@ -385,9 +382,8 @@ public class UserService {
             if (userRepository.existsByEmail(req.getEmail())) {
                 throw new ConflictException("邮箱已存在");
             }
+            // 邮箱降级为可选联系方式：改名不再同步 username，避免登录名被静默改掉
             user.setEmail(req.getEmail());
-            user.setUsername(req.getEmail());
-            revoke = true;
         }
         if (req.getPhone() != null) {
             user.setPhone(req.getPhone());

@@ -52,7 +52,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 | Claim | 说明 |
 |---|---|
-| `sub` | 用户名（创作者为 email） |
+| `sub` | 用户名（`t_user.username`） |
 | `userId` | 用户 ID |
 | `orgId` | 组织 ID |
 | `role` | `admin` / `user` |
@@ -61,7 +61,7 @@ Token 由登录/注册接口返回，载荷包含：
 
 会话撤销规则：
 
-- 改密、重置密码、禁用、软删除、修改邮箱、退出登录都会递增 `token_version`，旧 token 立即 `401`。
+- 改密、重置密码、禁用、软删除、退出登录都会递增 `token_version`，旧 token 立即 `401`；修改邮箱仅更新联系方式，不再影响登录名与会话。
 - 改密（`PUT /api/users/{id}/password`）必须先校验 `oldPassword`，校验失败不写库、不撤销会话；管理员通过 `/reset-password` 或 `PATCH /api/admin/users/{id}` 修改密码属于强制覆盖，不需要旧密码。
 - 角色权限变更、权限码启停会在事务提交后失效相关用户的权限缓存。
 - 退出登录会同时登出该账号的其他会话（当前为单会话模型）。
@@ -79,7 +79,7 @@ Token 由登录/注册接口返回，载荷包含：
 {
   "code": 400,
   "message": "参数验证失败",
-  "data": { "email": "must be a well-formed email address" },
+  "data": { "username": "不能为空" },
   "timestamp": 1793674181000
 }
 ```
@@ -400,8 +400,8 @@ Token 由登录/注册接口返回，载荷包含：
 
 ```json
 {
+  "username": "creator01",
   "name": "创作者",
-  "email": "creator@example.com",
   "password": "secret123",
   "features": { "script": true, "textToImage": true },
   "orgId": 2
@@ -410,17 +410,17 @@ Token 由登录/注册接口返回，载荷包含：
 
 | 字段 | 类型 | 必填 | 约束 |
 |---|---|---|---|
-| `name` | string | 是 | ≤ 80 |
-| `email` | string | 是 | 合法邮箱，≤ 50，全局唯一；同时作为 `username` |
+| `username` | string | 是 | 6–50，全局唯一，即登录名 |
+| `name` | string | 是 | ≤ 80，同时写入 `realName` |
 | `password` | string | 是 | 6–256 |
 | `features` | object | 否 | 已知 25 项 feature 的布尔值；省略时全 false |
 | `orgId` | int | 否 | 目标组织；仅超级管理员生效（按组织筛选后创建），组织管理员传入会被忽略 |
 
-响应 `200`：`ContractUserDto`（`id`/`name`/`email`/`role`/`status`/`created_at`，不含密码、角色与 feature 明细）。
+响应 `200`：`ContractUserDto`（`id`/`name`/`username`/`role`/`status`/`created_at`，不含密码、角色与 feature 明细；`email` 为 `null`）。
 
-行为：默认 `orgId` 取调用方所属组织，并建立个人 feature 角色；超级管理员可传 `orgId` 把创作者建到指定组织。组织管理员创建的创作者只在本组织可见。
+行为：默认 `orgId` 取调用方所属组织，并建立个人 feature 角色；超级管理员可传 `orgId` 把创作者建到指定组织。组织管理员创建的创作者只在本组织可见。创建接口不采集邮箱，`t_user.email` 留空，登录只用用户名。
 
-错误：`409` 邮箱已存在；`400` feature 名称未知或值非布尔、组织不存在。
+错误：`409` 用户名已存在；`400` feature 名称未知或值非布尔、组织不存在。
 
 ### 3.3 修改创作者
 
@@ -441,12 +441,12 @@ Token 由登录/注册接口返回，载荷包含：
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `name` | string | ≤ 80 |
-| `email` | string | 合法邮箱，≤ 50；变更时同步 `username` 并撤销会话 |
+| `email` | string | 合法邮箱，≤ 50；仅作联系方式，**不再同步 `username`**、不撤销会话 |
 | `phone` | string | ≤ 32 |
 | `status` | string | `active` / `disabled`；修改后撤销会话 |
 | `password` | string | 空串不修改；非空至少 6 位；修改后撤销会话 |
 
-行为：邮箱、状态、密码任一变更都会递增 `token_version`；接口始终清理会话缓存。
+行为：状态或密码变更会递增 `token_version`；邮箱变更只更新联系方式，不影响登录名；接口始终清理会话缓存。
 
 > 管理员在此修改 `password` 属于强制覆盖，不需要旧密码；账号本人改密请使用 `PUT /api/users/{id}/password`（必须携带 `oldPassword`）。
 
@@ -1956,7 +1956,7 @@ curl -s http://localhost:8089/api/admin/users?page=0&pageSize=20 \
 curl -s -X POST http://localhost:8089/api/admin/users \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"name":"创作者","email":"creator@example.com","password":"secret123"}'
+  -d '{"username":"creator01","name":"创作者","password":"secret123"}'
 
 curl -s -X PUT http://localhost:8089/api/admin/user-permissions \
   -H "Authorization: Bearer $TOKEN" \
@@ -2005,4 +2005,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-05 | 客户端在响应写完前断开（如 Node 服务超时/重启，Windows 报“你的主机中的软件中止了一个已建立的连接”）不再记为 500 系统异常：`GlobalExceptionHandler` 识别 `ClientAbortException`/连接重置类 IOException，按 499 处理并降为 debug 日志 |
 | 2026-11-06 | 请求路径中的重复斜杠（如 `//api//users`，常见于网关把 baseUrl 与接口路径各自带 `/` 拼接）在进入 Spring Security 前折叠为单斜杠，避免 `StrictHttpFirewall` 以“URL contained a potentially malicious String "//"”拒绝请求；防火墙其余校验保持不变 |
 | 2026-11-11 | `POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”：请求体字段 `email` 替换为 `username`，按 `t_user.username` 查找 |
-| 2026-11-11 | 注册与创建组织不再采集邮箱：`POST /api/auth/register` 请求体改为 `username`（6–50，全局唯一，即登录名）+ `name` + `password`；`POST /api/organizations` 移除必填的 `adminEmail`。两处创建的账号 `t_user.email` 留空（NULL），统一用用户名 + 密码登录 |
+| 2026-11-11 | 注册、创建组织与后台创建创作者三个入口统一不再采集邮箱：`POST /api/auth/register` 改为 `username` + `name` + `password`，`POST /api/organizations` 移除必填的 `adminEmail`，`POST /api/admin/users` 改为 `username` + `name` + `password`；账号 `t_user.email` 留空（NULL），统一用用户名 + 密码登录。`PATCH /api/admin/users/{id}` 的 `email` 降级为联系方式，不再同步 `username` |

@@ -58,6 +58,7 @@ public final class UserMapper {
     public static ContractUserDto toUser(User u) {
         ContractUserDto dto = new ContractUserDto();
         dto.setId(u.getId());
+        dto.setUsername(u.getUsername());
         dto.setName(displayName(u));
         dto.setEmail(u.getEmail());
         dto.setRole(u.getRole());

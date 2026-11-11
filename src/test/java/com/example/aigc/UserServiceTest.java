@@ -1,10 +1,12 @@
 package com.example.aigc;
 
 import com.example.aigc.dto.CreateUserRequest;
+import com.example.aigc.dto.contract.CreateUserContractRequest;
 import com.example.aigc.entity.Role;
 import com.example.aigc.entity.User;
 import com.example.aigc.entity.UserRole;
 import com.example.aigc.exception.BusinessException;
+import com.example.aigc.exception.ConflictException;
 import com.example.aigc.exception.ForbiddenException;
 import com.example.aigc.exception.NotFoundException;
 import com.example.aigc.filter.UserSessionCache;
@@ -12,6 +14,7 @@ import com.example.aigc.repository.OrganizationRepository;
 import com.example.aigc.repository.RoleRepository;
 import com.example.aigc.repository.UserRepository;
 import com.example.aigc.repository.UserRoleRepository;
+import com.example.aigc.service.FeaturePermissionService;
 import com.example.aigc.service.OrganizationService;
 import com.example.aigc.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +58,9 @@ class UserServiceTest {
 
     @Mock
     private UserSessionCache userSessionCache;
+
+    @Mock
+    private FeaturePermissionService featurePermissionService;
 
     @InjectMocks
     private UserService userService;
@@ -541,5 +547,49 @@ class UserServiceTest {
 
         assertEquals("admin", target.getRole());
         verify(userRepository, never()).save(any(User.class));
+    }
+
+    // ==================== createCreator（/api/admin/users 创建口径） ====================
+
+    private CreateUserContractRequest creatorRequest() {
+        CreateUserContractRequest req = new CreateUserContractRequest();
+        req.setUsername("contract_creator");
+        req.setName("契约创作者");
+        req.setPassword("password123");
+        return req;
+    }
+
+    @Test
+    void testCreateCreator_UsesUsernameAndLeavesEmailEmpty() {
+        when(userRepository.existsByUsername("contract_creator")).thenReturn(false);
+        when(organizationRepository.existsById(7)).thenReturn(true);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User userArg = invocation.getArgument(0);
+            userArg.setId(42);
+            return userArg;
+        });
+
+        User created = userService.createCreator(creatorRequest(), 7);
+
+        assertEquals("contract_creator", created.getUsername());
+        assertNull(created.getEmail());
+        assertEquals("契约创作者", created.getName());
+        assertEquals("契约创作者", created.getRealName());
+        assertEquals("user", created.getRole());
+        assertEquals(Integer.valueOf(7), created.getOrgId());
+        assertEquals("encoded", created.getPassword());
+        verify(featurePermissionService).initForNewUser(created, null);
+    }
+
+    @Test
+    void testCreateCreator_RejectsDuplicateUsernameBeforeWriting() {
+        when(userRepository.existsByUsername("contract_creator")).thenReturn(true);
+
+        assertThrows(ConflictException.class, () -> userService.createCreator(creatorRequest(), 7));
+
+        verify(userRepository, never()).existsByEmail(anyString());
+        verify(userRepository, never()).save(any(User.class));
+        verify(featurePermissionService, never()).initForNewUser(any(User.class), any());
     }
 }
