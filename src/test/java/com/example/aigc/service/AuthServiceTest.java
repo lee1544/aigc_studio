@@ -25,6 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -89,10 +92,10 @@ class AuthServiceTest {
         creator.setOrgId(3);
 
         CreatorLoginRequest request = new CreatorLoginRequest();
-        request.setEmail("admin@school.com");
+        request.setUsername("school_admin");
         request.setPassword("secret");
 
-        when(userRepository.findByEmail("admin@school.com")).thenReturn(Optional.of(creator));
+        when(userRepository.findByUsername("school_admin")).thenReturn(Optional.of(creator));
         when(passwordEncoder.matches("secret", "hash")).thenReturn(true);
         when(organizationService.getOrgStatusById(3)).thenReturn(1);
         when(organizationService.getOrgNameById(3)).thenReturn("XX学校");
@@ -116,6 +119,20 @@ class AuthServiceTest {
         assertEquals(Integer.valueOf(1), result.getUser().getOrgStatus());
         assertEquals(Arrays.asList("ORG_ADMIN_3"), result.getUser().getRoles());
         assertEquals(Boolean.TRUE, result.getUser().getFeatures().get("script"));
+    }
+
+    @Test
+    void creatorLoginLooksUpByUsernameOnly() {
+        CreatorLoginRequest request = new CreatorLoginRequest();
+        request.setUsername("nobody");
+        request.setPassword("secret");
+        when(userRepository.findByUsername("nobody")).thenReturn(Optional.empty());
+
+        UnauthorizedException error = assertThrows(UnauthorizedException.class,
+                () -> authService.creatorLogin(request));
+
+        assertEquals("用户名或密码错误", error.getMessage());
+        verify(userRepository, never()).findByEmail(anyString());
     }
 
     @Test

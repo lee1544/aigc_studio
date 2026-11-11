@@ -64,16 +64,16 @@ public class AuthService {
         return buildLoginResult(user, "admin", firstLogin);
     }
 
-    /** POST /api/auth/login：学校创作账号 email + 密码。 */
+    /** POST /api/auth/login：学校创作账号 用户名 + 密码。 */
     public LoginResult creatorLogin(CreatorLoginRequest req) {
-        User user = userRepository.findByEmail(req.getEmail())
-                .orElseThrow(() -> new UnauthorizedException("邮箱或密码错误"));
+        User user = userRepository.findByUsername(req.getUsername())
+                .orElseThrow(() -> new UnauthorizedException("用户名或密码错误"));
         ensureActive(user);
         if (!"user".equals(user.getRole())) {
             throw new UnauthorizedException("非创作者账号");
         }
         if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
-            throw new UnauthorizedException("邮箱或密码错误");
+            throw new UnauthorizedException("用户名或密码错误");
         }
         boolean firstLogin = user.getLastLoginTime() == null;
         user.setLastLoginTime(LocalDateTime.now());

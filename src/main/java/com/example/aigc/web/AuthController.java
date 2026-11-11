@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**
  * 创作者会话接口：/api/auth/*。
- * login(email)、register、me、permissions、logout。
+ * login(username)、register、me、permissions、logout。
  */
 @RestController
 @RequestMapping("/api/auth")

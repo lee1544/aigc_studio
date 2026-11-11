@@ -262,12 +262,14 @@ Token 由登录/注册接口返回，载荷包含：
 请求：
 
 ```json
-{ "email": "creator@example.com", "password": "secret123" }
+{ "username": "creator01", "password": "secret123" }
 ```
 
 响应 `200`：`{ "token": "...", "user": ContractUserDto }`，`user.features` 为完整 25 项快照。
 
-错误：`401` 邮箱或密码错误 / 非创作者账号 / 账号已被禁用或删除。
+错误：`401` 用户名或密码错误 / 非创作者账号 / 账号已被禁用或删除。
+
+说明：登录凭据为 `t_user.username`（全局唯一）；自助注册账号的 `username` 默认等于注册邮箱，可直接用该字符串登录。
 
 ### 2.4 创作者注册
 
@@ -2002,3 +2004,4 @@ curl -s http://localhost:8089/api/internal/node-config \
 | 2026-11-05 | 修复 `created_at`/`last_login_at` 时区错误：数据库本地墙上时间（如 `14:45`）此前被直接标成 `14:45:25Z`，前端按 UTC 再转北京时区后变为 `22:45`；现改为按 JVM 时区解释后转换为 UTC（`06:45:25Z`） |
 | 2026-11-05 | 客户端在响应写完前断开（如 Node 服务超时/重启，Windows 报“你的主机中的软件中止了一个已建立的连接”）不再记为 500 系统异常：`GlobalExceptionHandler` 识别 `ClientAbortException`/连接重置类 IOException，按 499 处理并降为 debug 日志 |
 | 2026-11-06 | 请求路径中的重复斜杠（如 `//api//users`，常见于网关把 baseUrl 与接口路径各自带 `/` 拼接）在进入 Spring Security 前折叠为单斜杠，避免 `StrictHttpFirewall` 以“URL contained a potentially malicious String "//"”拒绝请求；防火墙其余校验保持不变 |
+| 2026-11-11 | `POST /api/auth/login` 由“邮箱 + 密码”改为“用户名 + 密码”：请求体字段 `email` 替换为 `username`，按 `t_user.username` 查找；自助注册账号的 `username` 仍等于注册邮箱，可直接用该字符串登录 |

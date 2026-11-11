@@ -126,7 +126,7 @@ java -jar aigc-studio.jar --spring.profiles.active=prod
 |---|---|
 | 管理后台 | http://localhost:8089/admin |
 | 管理员登录 | POST `/api/admin/login` |
-| 创作者登录 | POST `/api/auth/login` |
+| 创作者登录 | POST `/api/auth/login`（用户名 + 密码） |
 
 默认超级管理员：`admin / admin123`（首次启动自动创建，归属默认组织；生产环境请立即修改密码）。
 
